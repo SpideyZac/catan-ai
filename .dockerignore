@@ -1,0 +1,10 @@
+target/
+.venv/
+**/node_modules/
+web/dist/
+runs/
+checkpoints/
+data/
+models/*.pt
+.git/
+**/__pycache__/
