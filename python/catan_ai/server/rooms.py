@@ -43,6 +43,7 @@ from catan_ai.server.store import RoomStore
 log = logging.getLogger(__name__)
 
 SEAT_COLORS = ("red", "blue", "white", "orange")
+BOT_NAMES = ("Ada", "Blaise", "Grace", "Alan")
 BOT_DELAYS = {"fast": 0.2, "normal": 0.75, "slow": 1.5}
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 LOG_LIMIT = 300
@@ -125,7 +126,7 @@ class Room:
     def seat_name(self, i: int) -> str:
         s = self.seats[i]
         if s.kind == "bot":
-            return s.name or f"{(s.bot or 'bot').split(':')[-1].title()} Bot"
+            return s.name or BOT_NAMES[i % len(BOT_NAMES)]
         if s.name:
             return s.name
         c = self.clients.get(s.client_id or "")
