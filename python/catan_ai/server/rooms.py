@@ -35,6 +35,7 @@ from catan_ai.server.protocol import (
     LeaveSeat,
     Ping,
     RoomSettings,
+    SetSeat,
     Start,
     client_message,
 )
@@ -441,6 +442,12 @@ class RoomManager:
                 if not is_host:
                     raise RoomError("only the host can change the table")
                 self._configure(room, msg)
+            elif isinstance(msg, SetSeat):
+                if not is_host:
+                    raise RoomError("only the host can change the table")
+                if msg.seat >= len(room.seats):
+                    raise RoomError("no such seat")
+                self._set_seat(room, msg.seat, msg.kind, msg.bot)
             elif isinstance(msg, Start):
                 if not is_host:
                     raise RoomError("only the host can start the game")
@@ -492,22 +499,23 @@ class RoomManager:
         if msg.settings is not None:
             if room.status == "playing":
                 raise RoomError("settings are locked while a game is running")
-            room.settings = msg.settings
+            # Merge only the fields the client sent, so concurrent edits don't clobber each other.
+            room.settings = room.settings.model_copy(update=msg.settings.model_dump(exclude_unset=True))
             room.reset_seats()
         if msg.seats is not None:
             if len(msg.seats) != len(room.seats):
                 raise RoomError(f"expected {len(room.seats)} seats")
             for i, cfg in enumerate(msg.seats):
-                seat = room.seats[i]
-                if cfg.kind == "bot":
-                    level = cfg.bot or "heuristic"
-                    if not self.registry.is_valid(level):
-                        raise RoomError(f"unknown bot level {level!r}")
-                    room.seats[i] = Seat(kind="bot", bot=level)
-                elif seat.kind == "bot":
-                    room.seats[i] = Seat(kind="human")
-        if room.status == "playing":
-            self._ensure_bot_task(room)
+                self._set_seat(room, i, cfg.kind, cfg.bot)
+
+    def _set_seat(self, room: Room, i: int, kind: str, bot: str | None) -> None:
+        if kind == "bot":
+            level = bot or "heuristic"
+            if not self.registry.is_valid(level):
+                raise RoomError(f"unknown bot level {level!r}")
+            room.seats[i] = Seat(kind="bot", bot=level)
+        elif room.seats[i].kind == "bot":
+            room.seats[i] = Seat(kind="human")
 
     # ------------------------------------------------------------------ bots
     def _ensure_bot_task(self, room: Room) -> None:

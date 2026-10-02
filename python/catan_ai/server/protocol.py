@@ -50,6 +50,15 @@ class Configure(BaseModel):
     seats: list[SeatConfig] | None = Field(default=None, max_length=4)
 
 
+class SetSeat(BaseModel):
+    """Change a single seat atomically (host only; also allowed mid-game)."""
+
+    type: Literal["set_seat"]
+    seat: int = Field(ge=0, le=3)
+    kind: Literal["human", "bot"]
+    bot: str | None = Field(default=None, max_length=64)
+
+
 class Start(BaseModel):
     type: Literal["start"]
 
@@ -74,7 +83,7 @@ class Ping(BaseModel):
 
 
 ClientMessage = Annotated[
-    Hello | ClaimSeat | LeaveSeat | Configure | Start | ActionMsg | Chat | BackToLobby | Ping,
+    Hello | ClaimSeat | LeaveSeat | Configure | SetSeat | Start | ActionMsg | Chat | BackToLobby | Ping,
     Field(discriminator="type"),
 ]
 client_message = TypeAdapter(ClientMessage)

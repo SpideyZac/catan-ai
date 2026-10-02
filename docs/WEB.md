@@ -53,9 +53,10 @@ Theme tokens live at the top of `styles.css` (wood, parchment, ink, gold). Fonts
 (titles) and Nunito (UI) from Google Fonts. Layout is a CSS grid (players | board | side
 panel, dock below) collapsing to a single column under 860px with a sticky dock.
 
-## Manual UI testing
+## UI smoke test
 
-There is no browser test suite yet (see roadmap). The flows were verified with a
-Playwright script driving headless Chrome: home → Play vs AI → setup placements → roll →
-compose and send a trade; pass & play lobby → curtain; spectating an all-AI game; mobile
-viewport. Screenshots are in `docs/images/`.
+`npm run ui-smoke` (with `uv run catan-server` running on :8000) drives headless Chrome via
+`playwright-core`: home → Play vs AI → setup placements → roll (handling a 7) → compose and
+send a trade offer; then Pass & Play lobby → add a local player → set AI seats → start →
+pass-device curtain. It fails on any page error. Options: `BASE_URL`, `CHROME_PATH`
+(defaults to the standard Windows install), `-- --out <dir>` for screenshots.

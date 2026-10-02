@@ -33,7 +33,7 @@ Status legend: ✅ done · 🔜 next · 💡 idea
 
 ## Milestone 4 — Product polish
 
-- 💡 Browser e2e tests (Playwright) in CI for home → game → trade → game over
+- 💡 Run `npm run ui-smoke` in CI (start server + headless Chromium); extend it through game over
 - 💡 Turn timers / AFK handling (host can already replace an offline player with the AI)
 - 💡 Sound effects, resource-flow animations from tiles to player panels, card hover zoom
 - 💡 Accessibility: keyboard navigation of board targets, colour-blind piece patterns, ARIA live log

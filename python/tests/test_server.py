@@ -172,3 +172,27 @@ def test_host_can_hand_a_seat_to_the_ai_mid_game(client):
 def test_rate_limiter():
     limiter = app_mod.RateLimiter(3, 60.0)
     assert [limiter.allow() for _ in range(4)] == [True, True, True, False]
+
+
+def test_rapid_seat_changes_do_not_clobber_each_other(client):
+    r = client.post("/api/rooms", json={"name": "Host"}).json()
+    ws, _ = join(client, r["code"], "Host", r["token"])
+    ws.send_text(json.dumps({"type": "configure", "seats": [{"kind": "human"}] * 4}))
+    # Fired back to back, as a fast click sequence would.
+    ws.send_text(json.dumps({"type": "set_seat", "seat": 2, "kind": "bot", "bot": "random"}))
+    ws.send_text(json.dumps({"type": "set_seat", "seat": 3, "kind": "bot", "bot": "heuristic"}))
+    state = recv_until(
+        ws,
+        lambda m: (
+            m["type"] == "state"
+            and [s["kind"] for s in m["room"]["seats"]] == ["human", "human", "bot", "bot"]
+        ),
+    )
+    assert [s["bot"] for s in state["room"]["seats"][2:]] == ["random", "heuristic"]
+    ws.send_text(json.dumps({"type": "configure", "settings": {"vp_to_win": 8}}))
+    ws.send_text(json.dumps({"type": "configure", "settings": {"bot_speed": "fast"}}))
+    state = recv_until(ws, lambda m: m["type"] == "state" and m["room"]["settings"]["bot_speed"] == "fast")
+    assert state["room"]["settings"]["vp_to_win"] == 8
+    ws.send_text(json.dumps({"type": "set_seat", "seat": 1, "kind": "bot", "bot": "nope"}))
+    assert "unknown bot" in recv_until(ws, lambda m: m["type"] == "error")["message"]
+    ws.__exit__(None, None, None)

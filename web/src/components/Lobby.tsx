@@ -15,12 +15,8 @@ export function Lobby({ conn, state, onLeave }: { conn: RoomConnection; state: S
 
   const host = you.is_host;
   const settings = room.settings;
-  const update = (patch: Partial<RoomSettings>) => conn.configure({ settings: { ...settings, ...patch } });
-  const seatsCfg = room.seats.map((s) => ({ kind: s.kind, bot: s.bot }));
-  const setSeat = (i: number, kind: "human" | "bot", bot?: string) => {
-    const next = seatsCfg.map((s, j) => (j === i ? { kind, bot: kind === "bot" ? (bot ?? "heuristic") : null } : s));
-    conn.configure({ seats: next });
-  };
+  const update = (patch: Partial<RoomSettings>) => conn.configure({ settings: patch });
+  const setSeat = (i: number, kind: "human" | "bot", bot?: string) => conn.setSeat(i, kind, bot);
   const unclaimed = room.seats.filter((s) => s.kind === "human" && !s.client_id).length;
   const link = `${location.origin}/room/${room.code}`;
   const iHaveSeat = you.seats.length > 0;

@@ -84,8 +84,9 @@ The first client message must be `hello`; the server answers `welcome` and then 
 {"type": "claim_seat", "seat": 1, "name": "Kid"}   // name: optional per-seat name (pass & play)
 {"type": "leave_seat", "seat": 1}                  // lobby only
 {"type": "configure", "settings": {"num_players": 4, "vp_to_win": 10, "max_trade_offers_per_turn": 5,
-                                   "beginner_board": false, "bot_speed": "normal"}}   // host, lobby only
+                                   "beginner_board": false, "bot_speed": "normal"}}   // host, lobby only; partial: only sent fields change
 {"type": "configure", "seats": [{"kind": "human"}, {"kind": "bot", "bot": "heuristic"}, …]}  // host; allowed mid-game (e.g. hand a seat to a bot)
+{"type": "set_seat", "seat": 2, "kind": "bot", "bot": "heuristic"}   // host; atomic single-seat change (lobby or mid-game)
 {"type": "start"}                                  // host
 {"type": "action", "seat": 0, "action": {"type": "build_road", "edge": 30}}   // engine action JSON, see ENGINE.md
 {"type": "chat", "text": "anyone have wood?"}

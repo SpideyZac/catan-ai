@@ -62,7 +62,8 @@ export interface RoomConnection {
   act: (seat: number, action: Action) => void;
   claimSeat: (seat: number, name?: string) => void;
   leaveSeat: (seat: number) => void;
-  configure: (cfg: { settings?: RoomSettings; seats?: { kind: "human" | "bot"; bot?: string | null }[] }) => void;
+  configure: (cfg: { settings?: Partial<RoomSettings>; seats?: { kind: "human" | "bot"; bot?: string | null }[] }) => void;
+  setSeat: (seat: number, kind: "human" | "bot", bot?: string | null) => void;
   start: () => void;
   chat: (text: string) => void;
   backToLobby: () => void;
@@ -141,6 +142,7 @@ export function useRoom(code: string, name: string): RoomConnection {
     claimSeat: (seat, seatName) => send({ type: "claim_seat", seat, name: seatName ?? null }),
     leaveSeat: (seat) => send({ type: "leave_seat", seat }),
     configure: (cfg) => send({ type: "configure", ...cfg }),
+    setSeat: (seat, kind, bot) => send({ type: "set_seat", seat, kind, bot: bot ?? null }),
     start: () => send({ type: "start" }),
     chat: (text) => send({ type: "chat", text }),
     backToLobby: () => send({ type: "back_to_lobby" }),

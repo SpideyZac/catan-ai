@@ -12,7 +12,7 @@ Living status document. Update it at the end of every work session (newest first
 | Python bindings (`catan-py`) | `Game`, `VecEnv`, `arena` | `python/tests/test_engine.py` |
 | Training stack | Entity transformer, PPO with seat chains + league, CLI presets, eval CLI | `test_training.py` (GAE hand-checked, trainer smoke + resume, neural agent full game); `catan-train --preset smoke` end to end |
 | Server | Rooms, pass & play, online, spectators, bots, persistence | `test_server.py` (7 tests incl. full bot game over WebSocket, restart persistence) |
-| Web client | Home, lobby, game, trading, modals, mobile | Typecheck + build; Playwright-driven headless Chrome walkthroughs with zero console errors (screenshots in `docs/images/`) |
+| Web client | Home, lobby, game, trading, modals, mobile | Typecheck + build; `npm run ui-smoke` (headless Chrome: solo game to a live trade offer, pass & play lobby → curtain) passing repeatedly with zero page errors; screenshots in `docs/images/` |
 | Docs | README, CLAUDE.md, docs/* | – |
 | Deployment | Dockerfile, CI workflow | **Not executed**: Docker daemon was not running on the dev machine and the repo has no remote yet |
 
@@ -33,7 +33,15 @@ Living status document. Update it at the end of every work session (newest first
 * Server is single-node (in-memory rooms + JSON snapshots).
 * Human players have no turn timer; a disconnected human stalls the game until they
   return or the host clicks "Replace with AI" on their panel.
-* No automated browser tests in the repo.
+* The UI smoke test is not wired into CI (needs a running server + Chrome).
+
+### Bugs found and fixed during verification
+
+* Bot loop could die silently on an exception and stall a table → now logged, retried and
+  resurrected on the next client message.
+* Rate limit (40 msgs/10 s) could drop legitimate bursts → 120/10 s.
+* Lobby seat/settings edits sent full lists built from stale client state, so quick
+  successive edits clobbered each other → atomic `set_seat` + partial settings merge.
 
 ### Next steps
 
