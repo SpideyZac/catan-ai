@@ -4,13 +4,17 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from catan_ai.server import app as app_mod
 from catan_ai.server import rooms as rooms_mod
 from catan_ai.server.app import ServerSettings, create_app
 
 
 @pytest.fixture(autouse=True)
 def fast_bots(monkeypatch):
+    # Zero-delay bots compress a whole game into seconds; lift the per-socket rate limit
+    # so the scripted human isn't throttled (the limiter has its own test).
     monkeypatch.setattr(rooms_mod, "BOT_DELAYS", {"fast": 0.0, "normal": 0.0, "slow": 0.0})
+    monkeypatch.setattr(app_mod, "RATE_LIMIT", (100_000, 1.0))
 
 
 @pytest.fixture()
@@ -77,12 +81,15 @@ def test_human_vs_bots_and_hidden_information(client):
     spectator, _ = join(client, code, "Watcher")
     ws.send_text(json.dumps({"type": "start"}))
     moves = 0
+    acted_at = -1  # log seq of the state we last acted on; older broadcasts are stale
     deadline = time.time() + 60
     while moves < 60 and time.time() < deadline:
         msg = recv_until(ws, lambda m: m["type"] == "state" and m["game"] is not None)
+        seq = msg["game"]["log"][-1]["seq"] if msg["game"]["log"] else 0
         legal = msg["game"]["legal"].get("0")
-        if not legal:
+        if not legal or seq <= acted_at:
             continue
+        acted_at = seq
         view = msg["game"]["views"]["0"]
         assert view["players"][0]["resources"] is not None
         assert all(p["resources"] is None for p in view["players"][1:])
@@ -148,3 +155,20 @@ def test_rooms_persist_across_restart(tmp_path):
         info = c.get(f"/api/rooms/{r['code']}")
         assert info.status_code == 200
         assert info.json()["seats"][0]["name"] == "Persist"
+
+
+def test_host_can_hand_a_seat_to_the_ai_mid_game(client):
+    r = client.post("/api/rooms", json={"name": "Leaver"}).json()
+    ws, _ = join(client, r["code"], "Leaver", r["token"])
+    ws.send_text(json.dumps({"type": "start"}))
+    recv_until(ws, lambda m: m["type"] == "state" and m["room"]["status"] == "playing")
+    bots = [{"kind": "bot", "bot": "heuristic"}] * 4
+    ws.send_text(json.dumps({"type": "configure", "seats": bots}))
+    final = recv_until(ws, lambda m: m["type"] == "state" and m["room"]["status"] == "finished", limit=20000)
+    assert final["game"]["views"]["spectator"]["winner"] is not None
+    ws.__exit__(None, None, None)
+
+
+def test_rate_limiter():
+    limiter = app_mod.RateLimiter(3, 60.0)
+    assert [limiter.allow() for _ in range(4)] == [True, True, True, False]

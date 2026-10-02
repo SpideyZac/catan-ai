@@ -26,7 +26,7 @@ from catan_ai.server.store import RoomStore
 log = logging.getLogger(__name__)
 
 MAX_MESSAGE_BYTES = 8_192
-RATE_LIMIT = (40, 10.0)  # messages per window (seconds)
+RATE_LIMIT = (120, 10.0)  # messages per window (seconds); bursts like multi-card discards must fit
 
 
 def _default_static_dir() -> str:

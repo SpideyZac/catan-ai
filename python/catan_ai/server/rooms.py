@@ -469,7 +469,8 @@ class RoomManager:
                 room.log = []
             room.touch()
             self._persist(room)
-        room.wake.set()
+        if room.status == "playing":
+            self._ensure_bot_task(room)
         await self.broadcast(room)
         return None
 
@@ -533,30 +534,39 @@ class RoomManager:
         return None
 
     async def _bot_loop(self, room: Room) -> None:
-        loop = asyncio.get_running_loop()
         while room.status == "playing":
-            room.wake.clear()
-            p = self._bot_actor(room)
-            if p is None:
-                with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(room.wake.wait(), timeout=2.0)
-                continue
-            await asyncio.sleep(BOT_DELAYS.get(room.settings.bot_speed, 0.75))
-            async with room.lock:
-                if self._bot_actor(room) != p or room.game is None:
-                    continue
-                g = room.game
-                level = room.seats[p].bot or "heuristic"
-                if g.phase == "trade_response" and p not in g.actors:
-                    action = {"type": "cancel_trade"}
-                else:
-                    snapshot = g.copy()
-                    action = await loop.run_in_executor(None, self.registry.choose, level, snapshot, p)
-                try:
-                    room.apply_action(p, action)
-                except RoomError:
-                    log.exception("bot %s produced an illegal action %s", level, action)
-                    fallback = g.bot_action(p, "heuristic", secrets.randbits(32))
-                    room.apply_action(p, fallback)
-                self._persist(room)
-            await self.broadcast(room)
+            try:
+                await self._bot_step(room)
+            except asyncio.CancelledError:
+                raise
+            except BaseException:  # includes pyo3 PanicException; never let a table stall
+                log.exception("bot loop error in room %s", room.code)
+                await asyncio.sleep(1.0)
+
+    async def _bot_step(self, room: Room) -> None:
+        """Wait for a bot decision (or a wake-up), then play one bot move."""
+        room.wake.clear()
+        p = self._bot_actor(room)
+        if p is None:
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(room.wake.wait(), timeout=2.0)
+            return
+        await asyncio.sleep(BOT_DELAYS.get(room.settings.bot_speed, 0.75))
+        async with room.lock:
+            if self._bot_actor(room) != p or room.game is None:
+                return
+            g = room.game
+            level = room.seats[p].bot or "heuristic"
+            if g.phase == "trade_response" and p not in g.actors:
+                action = {"type": "cancel_trade"}
+            else:
+                snapshot = g.copy()
+                loop = asyncio.get_running_loop()
+                action = await loop.run_in_executor(None, self.registry.choose, level, snapshot, p)
+            try:
+                room.apply_action(p, action)
+            except RoomError:
+                log.exception("bot %s produced an illegal action %s", level, action)
+                room.apply_action(p, g.bot_action(p, "heuristic", secrets.randbits(32)))
+            self._persist(room)
+        await self.broadcast(room)

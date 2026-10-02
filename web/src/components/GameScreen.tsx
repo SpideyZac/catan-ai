@@ -211,7 +211,23 @@ export function GameScreen({ conn, state, onLeave }: { conn: RoomConnection; sta
 
       <aside className="players">
         {seats.map((s) => (
-          <PlayerPanel key={s.index} view={view} seat={s.index} info={s} isMe={mySeats.includes(s.index)} />
+          <PlayerPanel
+            key={s.index}
+            view={view}
+            seat={s.index}
+            info={s}
+            isMe={mySeats.includes(s.index)}
+            onReplace={
+              you.is_host && s.kind === "human" && !s.connected && phase !== "game_over"
+                ? () =>
+                    conn.configure({
+                      seats: seats.map((x) =>
+                        x.index === s.index ? { kind: "bot" as const, bot: "heuristic" } : { kind: x.kind, bot: x.bot },
+                      ),
+                    })
+                : undefined
+            }
+          />
         ))}
         <div className="bank">
           <div className="bank-title">Bank</div>

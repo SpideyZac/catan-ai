@@ -187,8 +187,8 @@ class Trainer:
             num_players=cfg.num_players,
             max_trade_offers_per_turn=cfg.max_trade_offers_per_turn,
             max_turns=cfg.max_turns,
-            bot_kind=cfg.bot_kind,
-            num_bot_seats=cfg.bot_seats,
+            bot_kind=cfg.bot_kind or None,
+            num_bot_seats=cfg.bot_seats if cfg.bot_kind else 0,
             vp_reward_scale=cfg.vp_reward_scale,
             zero_sum=cfg.zero_sum,
         )

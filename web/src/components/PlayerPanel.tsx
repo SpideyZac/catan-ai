@@ -27,12 +27,15 @@ export function PlayerPanel({
   info,
   isMe,
   compact,
+  onReplace,
 }: {
   view: GameView;
   seat: number;
   info: SeatInfo;
   isMe: boolean;
   compact?: boolean;
+  /** Host-only: hand an offline player's seat to the AI. */
+  onReplace?: () => void;
 }) {
   const p = view.players[seat];
   const c = PLAYER_COLORS[info.color];
@@ -81,6 +84,11 @@ export function PlayerPanel({
         </div>
       )}
       {status && <div className="ppanel-status">{status}</div>}
+      {onReplace && (
+        <button className="btn ghost small replace" onClick={onReplace} title="This player is offline">
+          Replace with AI
+        </button>
+      )}
     </div>
   );
 }

@@ -48,6 +48,8 @@ PRESETS: dict[str, dict] = {
         "bot_seats": 2,
         "pool_prob": 0.0,
         "vp_reward_scale": 0.05,
+        # Same architecture as "full" so the warm-up checkpoint can be resumed there.
+        "model": {"d_model": 160, "n_layers": 6, "n_heads": 8},
     },
     # Main self-play run with a league of past snapshots.
     "full": {

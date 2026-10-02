@@ -692,6 +692,10 @@ select:focus {
   border-radius: 6px;
   padding: 1px 6px;
 }
+.ppanel .replace {
+  margin-top: 6px;
+  width: 100%;
+}
 .ppanel-status {
   margin-top: 5px;
   font-size: 0.78rem;
