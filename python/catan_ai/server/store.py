@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -31,10 +32,8 @@ class RoomStore:
         os.replace(tmp, path)
 
     def delete(self, code: str) -> None:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.remove(self._path(code))
-        except FileNotFoundError:
-            pass
 
     def load_all(self) -> list[dict]:
         out = []
