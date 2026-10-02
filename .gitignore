@@ -1,0 +1,36 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.pyd
+*.so
+dist/
+build/
+
+# Training artifacts
+/runs/
+/checkpoints/
+*.pt
+!python/tests/fixtures/*.pt
+
+# Server data
+/data/
+
+# Web
+node_modules/
+web/dist/
+python/catan_ai/server/static/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

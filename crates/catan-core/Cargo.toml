@@ -1,0 +1,15 @@
+[package]
+name = "catan-core"
+description = "High-performance Settlers of Catan rules engine with full player-to-player trading"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[[example]]
+name = "bench"
+path = "examples/bench.rs"
