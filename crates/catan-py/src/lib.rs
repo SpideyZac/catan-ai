@@ -9,8 +9,8 @@
 use catan_core::bots::{Bot, HeuristicBot, RandomBot};
 use catan_core::encode::{self, index_to_action, legal_mask, observe, ACTION_SIZE, OBS_SIZE};
 use catan_core::{Action, Event, GameConfig, GameState, Rng, MAX_PLAYERS};
-use numpy::ndarray::{Array1, Array2};
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1};
+use numpy::ndarray::{Array1, Array2, Array3};
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1};
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -202,9 +202,10 @@ impl Game {
 
     /// Seats that may act right now (several during discards and trade responses).
     #[getter]
-    fn actors(&self) -> Vec<u8> {
+    fn actors(&self) -> Vec<u32> {
+        // (Vec<u8> would surface in Python as `bytes`.)
         let m = self.state.actors();
-        (0..self.state.config.num_players).filter(|p| m & (1 << p) != 0).collect()
+        (0..self.state.config.num_players as u32).filter(|p| m & (1 << p) != 0).collect()
     }
 
     /// Canonical next decision-maker for sequential drivers.
@@ -637,6 +638,25 @@ impl VecEnv {
             Array1::from_vec(winner).into_pyarray(py),
             Array1::from_vec(turns).into_pyarray(py),
         ))
+    }
+
+    /// Observation of every env from every seat's perspective (`f32[N x P x OBS_SIZE]`).
+    /// Used to bootstrap value estimates for seats that are not currently acting.
+    fn observe_all_seats<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray3<f32>>> {
+        let n = self.slots.len();
+        let p = self.settings.config.num_players as usize;
+        let slots = &self.slots;
+        let obs = py.detach(|| {
+            let mut obs = vec![0f32; n * p * OBS_SIZE];
+            obs.par_chunks_mut(p * OBS_SIZE).zip(slots.par_iter()).for_each(|(chunk, slot)| {
+                for (seat, o) in chunk.chunks_mut(OBS_SIZE).enumerate() {
+                    observe(&slot.state, seat as u8, o);
+                }
+            });
+            obs
+        });
+        let obs = Array3::from_shape_vec((n, p, OBS_SIZE), obs).map_err(value_err)?;
+        Ok(obs.into_pyarray(py))
     }
 
     /// Seats controlled by Python in each env (`bool[N x 4]`); changes on reset.
