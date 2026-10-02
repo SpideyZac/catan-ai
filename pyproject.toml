@@ -18,9 +18,19 @@ dependencies = [
 
 [project.optional-dependencies]
 # Neural agents (training and inference). Install with: uv sync --extra train
+# (PyPI torch: CPU-only on Windows/macOS, CUDA on Linux).
 train = [
     "torch>=2.4",
     "tensorboard>=2.17",
+]
+# Optionally pin the torch build flavour from the official PyTorch index:
+#   uv sync --extra train --extra cu130   # CUDA 13.0 (e.g. NVIDIA GPU on Windows)
+#   uv sync --extra train --extra cpu     # CPU-only wheels (smaller download on Linux)
+cpu = [
+    "torch>=2.4",
+]
+cu130 = [
+    "torch>=2.4",
 ]
 
 [project.scripts]
@@ -44,7 +54,24 @@ manifest-path = "crates/catan-py/Cargo.toml"
 features = ["pyo3/extension-module"]
 profile = "release"
 
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu130", extra = "cu130" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
 [tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "cu130" }]]
 # Rebuild the Rust extension whenever engine sources change.
 cache-keys = [
     { file = "pyproject.toml" },
