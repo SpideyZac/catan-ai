@@ -205,7 +205,9 @@ impl Game {
     fn actors(&self) -> Vec<u32> {
         // (Vec<u8> would surface in Python as `bytes`.)
         let m = self.state.actors();
-        (0..self.state.config.num_players as u32).filter(|p| m & (1 << p) != 0).collect()
+        (0..self.state.config.num_players as u32)
+            .filter(|p| m & (1 << p) != 0)
+            .collect()
     }
 
     /// Canonical next decision-maker for sequential drivers.
@@ -312,7 +314,9 @@ impl Game {
     fn bot_action_json(&self, player: u8, kind: &str, seed: u64) -> PyResult<String> {
         check_player(&self.state, player)?;
         if self.state.actors() & (1 << player) == 0 {
-            return Err(PyValueError::new_err(format!("player {player} has no decision to make")));
+            return Err(PyValueError::new_err(format!(
+                "player {player} has no decision to make"
+            )));
         }
         let mut bot = ScriptedBot::new(kind, seed)?;
         to_json(&bot.choose(&self.state, player))
@@ -406,7 +410,9 @@ impl Slot {
     /// Let scripted seats act until a Python-controlled seat must decide or the game ends.
     fn advance_bots(&mut self, settings: &EnvSettings, rewards: &mut [f32; MAX_PLAYERS]) {
         while let Some(p) = self.state.next_actor() {
-            let Some(bot) = self.bots[p as usize].as_mut() else { break };
+            let Some(bot) = self.bots[p as usize].as_mut() else {
+                break;
+            };
             let a = bot.choose(&self.state, p);
             self.state.apply_unchecked(p, a);
             self.accumulate_vp(settings, rewards);
@@ -586,7 +592,11 @@ impl VecEnv {
         });
         let obs = Array2::from_shape_vec((n, OBS_SIZE), obs).map_err(value_err)?;
         let mask = Array2::from_shape_vec((n, ACTION_SIZE), mask).map_err(value_err)?;
-        Ok((obs.into_pyarray(py), mask.into_pyarray(py), Array1::from_vec(actors).into_pyarray(py)))
+        Ok((
+            obs.into_pyarray(py),
+            mask.into_pyarray(py),
+            Array1::from_vec(actors).into_pyarray(py),
+        ))
     }
 
     /// Apply one action index per env.
@@ -608,7 +618,10 @@ impl VecEnv {
         let actions = actions.as_slice()?.to_vec();
         let n = self.slots.len();
         if actions.len() != n {
-            return Err(PyValueError::new_err(format!("expected {n} actions, got {}", actions.len())));
+            return Err(PyValueError::new_err(format!(
+                "expected {n} actions, got {}",
+                actions.len()
+            )));
         }
         let settings = &self.settings;
         let slots = &mut self.slots;
@@ -648,11 +661,13 @@ impl VecEnv {
         let slots = &self.slots;
         let obs = py.detach(|| {
             let mut obs = vec![0f32; n * p * OBS_SIZE];
-            obs.par_chunks_mut(p * OBS_SIZE).zip(slots.par_iter()).for_each(|(chunk, slot)| {
-                for (seat, o) in chunk.chunks_mut(OBS_SIZE).enumerate() {
-                    observe(&slot.state, seat as u8, o);
-                }
-            });
+            obs.par_chunks_mut(p * OBS_SIZE)
+                .zip(slots.par_iter())
+                .for_each(|(chunk, slot)| {
+                    for (seat, o) in chunk.chunks_mut(OBS_SIZE).enumerate() {
+                        observe(&slot.state, seat as u8, o);
+                    }
+                });
             obs
         });
         let obs = Array3::from_shape_vec((n, p, OBS_SIZE), obs).map_err(value_err)?;

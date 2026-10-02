@@ -388,6 +388,23 @@ impl HeuristicBot {
         Action::EndTurn
     }
 
+    /// Propose 1-for-1 instead: one of our surplus cards for one card the proposer offered
+    /// that we actually need.
+    fn counter_offer(&mut self, state: &GameState, p: usize, tr: &crate::state::TradeOffer) -> Option<Action> {
+        let ps = &state.players[p];
+        let need = Self::pick_target(state, p).cost();
+        let want = (0..NUM_RESOURCES).find(|&r| tr.give[r] > 0 && ps.resources[r] < need[r])?;
+        let give = (0..NUM_RESOURCES)
+            .filter(|&r| r != want && ps.resources[r] > need[r])
+            .max_by_key(|&r| ps.resources[r] - need[r])?;
+        let mut g = EMPTY_HAND;
+        g[give] = 1;
+        let mut w = EMPTY_HAND;
+        w[want] = 1;
+        let a = Action::OfferTrade { give: g, want: w };
+        (self.has(&a) && self.rng.below(2) == 0).then_some(a)
+    }
+
     fn robber_hurts(&self, state: &GameState, p: usize) -> bool {
         let t = topo();
         t.hex_vertices[state.robber as usize]
@@ -465,10 +482,14 @@ impl HeuristicBot {
                 let leader_threat = state.public_vp(tr.proposer as usize) + 2 >= state.config.vp_to_win;
                 // We give what the proposer wants and get what the proposer gives.
                 if !leader_threat && self.has(&Action::AcceptTrade) && Self::trade_helps(state, p, &tr.want, &tr.give) {
-                    Some(Action::AcceptTrade)
-                } else {
-                    Some(Action::RejectTrade)
+                    return Some(Action::AcceptTrade);
                 }
+                if !leader_threat {
+                    if let Some(counter) = self.counter_offer(state, p, tr) {
+                        return Some(counter);
+                    }
+                }
+                Some(Action::RejectTrade)
             }
             Phase::TradeConfirm => {
                 let tr = state.trade.as_ref()?;

@@ -576,3 +576,26 @@ fn events_are_recorded_and_redacted() {
         }
     }
 }
+
+#[test]
+fn heuristic_bots_trade_with_each_other() {
+    use catan_core::event::TradeResponseKind;
+    let (mut executed, mut counters) = (0, 0);
+    for seed in 0..20u64 {
+        let mut s = GameState::new(config(), 500 + seed);
+        let mut bots = heuristic_bots(seed, 4);
+        play_game(&mut s, &mut bots);
+        for e in s.take_events() {
+            match e {
+                Event::TradeExecuted { .. } => executed += 1,
+                Event::TradeResponded {
+                    response: TradeResponseKind::Counter { .. },
+                    ..
+                } => counters += 1,
+                _ => {}
+            }
+        }
+    }
+    assert!(executed > 20, "only {executed} player trades executed");
+    assert!(counters > 10, "only {counters} counter-offers made");
+}
