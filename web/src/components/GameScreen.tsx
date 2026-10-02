@@ -137,6 +137,14 @@ export function GameScreen({ conn, state, onLeave }: { conn: RoomConnection; sta
       const mine =
         (event.type === "stolen" && (mySeats.includes(event.victim) || mySeats.includes(event.thief))) ||
         (event.type === "trade_executed" && (mySeats.includes(event.partner) || mySeats.includes(event.proposer)));
+      if (event.type === "trade_cancelled" && mySeats.includes(event.proposer)) {
+        add.push({ id: seq, text: "No deal - your offer was closed", tone: "info" });
+        continue;
+      }
+      if (event.type === "trade_responded" && event.response.kind === "counter" && anyView.current !== undefined && mySeats.includes(anyView.current)) {
+        add.push({ id: seq, text: `${names[event.player]} sent a counter-offer`, tone: "good" });
+        continue;
+      }
       if (TOAST_EVENTS.has(event.type) || (event.type === "dice_rolled" && event.dice[0] + event.dice[1] === 7)) {
         const tone: Toast["tone"] =
           event.type === "stolen" && mySeats.includes(event.victim) ? "bad" : mine ? "good" : "info";
