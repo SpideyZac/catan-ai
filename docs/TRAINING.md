@@ -125,6 +125,23 @@ Outputs in `--run-dir`:
 | `update_XXXXXXX.pt` | Milestones every `checkpoint_every × 20` updates |
 | `final.pt` | End of training |
 
+## Tuning throughput for your GPU
+
+```bash
+uv run catan-bench            # ~1 minute
+```
+
+It measures env throughput and learner forward+backward samples/s for every
+`scaled_dot_product_attention` backend (`auto`, `efficient`, `cudnn`, `flash`, `math`)
+and with `torch.compile`, reports peak memory, and prints the fastest flags, e.g.
+`--attention efficient --compile true`. Pass them to `catan-train`. Unsupported options
+are reported as "unavailable" (e.g. flash attention can't take the relation bias;
+`torch.compile` needs a working Triton install).
+
+Reference (RTX 5070, warmup preset, model v2, default flags): ~2,300 sps with
+`roll 2.0s / learn 12.5s` per update, so the learner dominates. If nothing else helps,
+`--epochs 2` cuts learner time by a third.
+
 ## GPU memory
 
 Attention with the relation bias can't use the flash kernel, so each layer may

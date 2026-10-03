@@ -13,7 +13,11 @@ Living status document. Update it at the end of every work session (newest first
 * Learner: on-device loss statistics (one host sync per minibatch instead of five per
   micro-batch), fused AdamW and TF32 on CUDA, default micro-batch 1024. Console shows
   rollout vs learn seconds.
-* Not yet measured on the GPU; ask the owner for the new sps and the roll/learn split.
+* Measured by the owner on the RTX 5070: **931 → ~2,300 sps** (roll 2.0 s, learn 12.5 s per
+  32,768-decision update). The learner is the bottleneck (~8 TFLOPS effective).
+* Added `catan-bench` (attention backend / `torch.compile` comparison on the real GPU) and
+  trainer flags `--attention` and `--compile`. Next: owner runs `catan-bench`, then we pick
+  defaults from the results.
 
 ## 2026-10-03 — First GPU run feedback
 

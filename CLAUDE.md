@@ -45,6 +45,7 @@ uv run catan-server --port 8000        # serves web/dist
 cd web && npm run ui-smoke             # headless-Chrome E2E walkthrough against :8000 (add -- --out shots/)
 uv run catan-train --preset smoke --run-dir runs/smoke
 uv run catan-eval heuristic random random random --games 500
+uv run catan-bench                     # fastest attention/compile flags for this GPU
 ```
 
 ## Where things live

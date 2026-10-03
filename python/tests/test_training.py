@@ -175,3 +175,34 @@ def test_old_model_checkpoints_are_rejected(tmp_path):
     torch.save(payload, path)
     with pytest.raises(ValueError, match="model v1"):
         load_checkpoint(str(path))
+
+
+def test_attention_backend_option(tmp_path):
+    trainer = _tiny_trainer(tmp_path, attention="math")
+    tensors = _minibatch(trainer)
+    stats = trainer._accumulate_gradients(tensors, 0.01)
+    assert all(np.isfinite(v) for v in stats.values())
+    with pytest.raises(ValueError, match="attention"):
+        _tiny_trainer(tmp_path, attention="bogus")
+
+
+def test_bench_cli_runs(capsys):
+    from catan_ai.bench import main
+
+    main(
+        [
+            "--device",
+            "cpu",
+            "--micro-batch",
+            "16",
+            "--model.d-model",
+            "32",
+            "--model.n-layers",
+            "1",
+            "--model.n-heads",
+            "2",
+            "--skip-compile",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "decisions/s" in out and "fastest:" in out

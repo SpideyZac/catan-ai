@@ -36,6 +36,7 @@ cu130 = [
 [project.scripts]
 catan-train = "catan_ai.train:main"
 catan-eval = "catan_ai.evaluate:main"
+catan-bench = "catan_ai.bench:main"
 catan-server = "catan_ai.server.__main__:main"
 
 [dependency-groups]

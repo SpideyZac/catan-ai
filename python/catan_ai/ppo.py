@@ -20,6 +20,7 @@ See ``docs/TRAINING.md`` for guidance on hyperparameters and hardware.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import math
@@ -33,6 +34,7 @@ import torch
 import torch.nn.functional as F
 
 from catan_ai import _engine
+from catan_ai.bench import BACKENDS, attention_context
 from catan_ai.engine import ACTION_SIZE, OBS_SIZE
 from catan_ai.model import ModelConfig, build_model, check_compatible, masked_logits, save_checkpoint
 
@@ -69,6 +71,11 @@ class TrainConfig:
     micro_batch_size: int = 1024
     target_kl: float = 0.03
     amp: bool = True
+    # scaled_dot_product_attention backend: auto | efficient | cudnn | flash | math.
+    # Run `catan-bench` to find the fastest one for your GPU.
+    attention: str = "auto"
+    # torch.compile the learner model (needs a working Triton install).
+    compile: bool = False
     # League
     pool_prob: float = 0.25
     snapshot_every: int = 50
@@ -215,6 +222,10 @@ class Trainer:
             self._assign_env(i)
 
         self.use_amp = cfg.amp and self.device.type == "cuda"
+        if cfg.attention not in BACKENDS:
+            raise ValueError(f"attention must be one of {sorted(BACKENDS)}")
+        # Compiled view of the learner model (shares parameters); opponents stay eager.
+        self.fwd = torch.compile(self.model) if cfg.compile else self.model
         self.micro_batch_size = max(1, min(cfg.micro_batch_size, cfg.minibatch_size))
         self.writer = None
         try:
@@ -254,12 +265,20 @@ class Trainer:
         self.learner_seat[i] = -1  # chosen lazily among Python seats
 
     # ------------------------------------------------------------------ rollout
+    def _ctx(self) -> contextlib.ExitStack:
+        """Autocast + the configured attention backend, for every model call."""
+        stack = contextlib.ExitStack()
+        stack.enter_context(torch.autocast(self.device.type, dtype=torch.bfloat16, enabled=self.use_amp))
+        stack.enter_context(attention_context(self.cfg.attention))
+        return stack
+
     @torch.no_grad()
     def _policy(self, model, obs: np.ndarray, mask: np.ndarray, greedy: bool = False):
         o = torch.from_numpy(obs).to(self.device, non_blocking=True)
         m = torch.from_numpy(mask).to(self.device, non_blocking=True)
-        with torch.autocast(self.device.type, dtype=torch.bfloat16, enabled=self.use_amp):
-            logits, value = model(o)
+        net = self.fwd if model is self.model else model
+        with self._ctx():
+            logits, value = net(o)
         logits = masked_logits(logits.float(), m)
         if greedy:
             action = logits.argmax(-1)
@@ -331,7 +350,8 @@ class Trainer:
             ):
                 # Up to num_envs x 4 rows: chunk to keep attention memory bounded.
                 for chunk in o.split(max(self.micro_batch_size, self.n)):
-                    values.append(self.model(chunk)[1].float())
+                    with attention_context(self.cfg.attention):
+                        values.append(self.fwd(chunk)[1].float())
             buf.bootstrap[self.last_idx[open_env, open_seat]] = torch.cat(values).cpu().numpy()
         return {"transitions": buf.size}
 
@@ -360,8 +380,8 @@ class Trainer:
             try:
                 for lo in range(0, total, self.micro_batch_size):
                     o, m, act, old_logp, old_v, a, ret = (t[lo : lo + self.micro_batch_size] for t in tensors)
-                    with torch.autocast(self.device.type, dtype=torch.bfloat16, enabled=self.use_amp):
-                        logits, value = self.model(o)
+                    with self._ctx():
+                        logits, value = self.fwd(o)
                     logits = masked_logits(logits.float(), m)
                     value = value.float()
                     logp_all = torch.log_softmax(logits, -1)
