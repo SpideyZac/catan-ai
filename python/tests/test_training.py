@@ -78,3 +78,67 @@ def test_neural_agent_plays_full_game(tmp_path):
         [agent, ScriptedAgent("heuristic", 1), ScriptedAgent("heuristic", 2)], seed=3, max_turns=150
     )
     assert g.is_over
+
+
+def _tiny_trainer(tmp_path, **overrides):
+    cfg = TrainConfig(
+        run_dir=str(tmp_path),
+        num_envs=8,
+        rollout_steps=16,
+        total_updates=1,
+        minibatch_size=64,
+        epochs=1,
+        eval_every=0,
+        pool_prob=0.0,
+        device="cpu",
+        model=ModelConfig(d_model=32, n_layers=1, n_heads=2),
+        **overrides,
+    )
+    return Trainer(cfg)
+
+
+def _minibatch(trainer, size=48):
+    trainer.collect()
+    buf = trainer.buffer
+    adv, ret = buf.compute_gae(0.99, 0.95)
+    idx = slice(0, size)
+    a = torch.from_numpy(adv[idx])
+    return (
+        torch.from_numpy(buf.obs[idx]),
+        torch.from_numpy(buf.mask[idx]),
+        torch.from_numpy(buf.action[idx]),
+        torch.from_numpy(buf.logp[idx]),
+        torch.from_numpy(buf.value[idx]),
+        (a - a.mean()) / (a.std() + 1e-8),
+        torch.from_numpy(ret[idx]),
+    )
+
+
+def test_micro_batching_matches_single_pass_gradients(tmp_path):
+    trainer = _tiny_trainer(tmp_path)
+    tensors = _minibatch(trainer)
+    trainer.micro_batch_size = 48
+    full = trainer._accumulate_gradients(tensors, 0.01)
+    g_full = [p.grad.clone() for p in trainer.model.parameters() if p.grad is not None]
+    trainer.micro_batch_size = 7  # uneven split on purpose
+    split = trainer._accumulate_gradients(tensors, 0.01)
+    g_split = [p.grad.clone() for p in trainer.model.parameters() if p.grad is not None]
+    for a, b in zip(g_full, g_split, strict=True):
+        assert torch.allclose(a, b, atol=1e-5, rtol=1e-4)
+    for k in full:
+        assert full[k] == pytest.approx(split[k], abs=1e-5)
+
+
+def test_out_of_memory_halves_micro_batch(tmp_path, monkeypatch):
+    trainer = _tiny_trainer(tmp_path, micro_batch_size=64)
+    tensors = _minibatch(trainer)
+    forward = trainer.model.forward
+
+    def limited(obs):
+        if obs.shape[0] > 12:
+            raise torch.OutOfMemoryError("simulated")
+        return forward(obs)
+
+    monkeypatch.setattr(trainer.model, "forward", limited)
+    trainer._accumulate_gradients(tensors, 0.01)
+    assert trainer.micro_batch_size == 8

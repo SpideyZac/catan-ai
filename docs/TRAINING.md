@@ -121,6 +121,17 @@ Outputs in `--run-dir`:
 | `update_XXXXXXX.pt` | Milestones every `checkpoint_every × 20` updates |
 | `final.pt` | End of training |
 
+## GPU memory
+
+Attention with the relation bias can't use the fused flash kernel, so each layer
+materializes a `batch × heads × 152 × 152` score matrix. The learner therefore splits
+every minibatch into micro-batches of `micro_batch_size` (gradient accumulation; the
+update is mathematically identical). If a micro-batch still runs out of memory it is
+halved and the minibatch retried, printing `CUDA out of memory: retrying with
+micro_batch_size=N`. Pass that `N` next time (`--micro-batch-size N`) to skip the retries.
+On a 12 GB card start with the default 512. Setting
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` reduces fragmentation.
+
 ## What to watch
 
 * `eval/heuristic_win_rate`: win rate of the greedy policy in 1-vs-3 games against the
@@ -148,6 +159,7 @@ forward pass takes a few ms), and falls back to the heuristic bot if a model err
 
 | Knob | Default | Notes |
 |---|---|---|
+| `micro_batch_size` | 512 | Samples per forward/backward; gradients are accumulated over the minibatch, so this only affects memory. Halved automatically on CUDA OOM |
 | `num_envs × rollout_steps` | 512 × 128 (full) | ~65k decisions per update; larger batches stabilise multi-agent PPO |
 | `gamma` | 0.997 | Per *decision*; a seat makes ~100-200 decisions per game |
 | `gae_lambda` | 0.95 | |

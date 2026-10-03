@@ -65,6 +65,8 @@ class TrainConfig:
     max_grad_norm: float = 0.5
     epochs: int = 3
     minibatch_size: int = 4096
+    # Samples per forward/backward pass; halved automatically on CUDA OOM.
+    micro_batch_size: int = 512
     target_kl: float = 0.03
     amp: bool = True
     # League
@@ -206,6 +208,7 @@ class Trainer:
             self._assign_env(i)
 
         self.use_amp = cfg.amp and self.device.type == "cuda"
+        self.micro_batch_size = max(1, min(cfg.micro_batch_size, cfg.minibatch_size))
         self.writer = None
         try:
             from torch.utils.tensorboard import SummaryWriter
@@ -313,13 +316,16 @@ class Trainer:
         open_env, open_seat = np.nonzero(self.last_idx[:, : self.p] >= 0)
         if len(open_env):
             all_obs = self.env.observe_all_seats()
-            o = all_obs[open_env, open_seat]
+            o = torch.from_numpy(all_obs[open_env, open_seat]).to(self.device)
+            values = []
             with (
                 torch.no_grad(),
                 torch.autocast(self.device.type, dtype=torch.bfloat16, enabled=self.use_amp),
             ):
-                _, v = self.model(torch.from_numpy(o).to(self.device))
-            buf.bootstrap[self.last_idx[open_env, open_seat]] = v.float().cpu().numpy()
+                # Up to num_envs x 4 rows: chunk to keep attention memory bounded.
+                for chunk in o.split(max(self.micro_batch_size, self.n)):
+                    values.append(self.model(chunk)[1].float())
+            buf.bootstrap[self.last_idx[open_env, open_seat]] = torch.cat(values).cpu().numpy()
         return {"transitions": buf.size}
 
     # ------------------------------------------------------------------ update
@@ -329,6 +335,58 @@ class Trainer:
         lr = self.cfg.lr * (self.cfg.lr_final_frac + (1 - self.cfg.lr_final_frac) * cos)
         ent = self.cfg.entropy_final_coef + (self.cfg.entropy_coef - self.cfg.entropy_final_coef) * cos
         return lr, ent
+
+    def _accumulate_gradients(self, tensors: tuple[torch.Tensor, ...], ent_coef: float) -> dict:
+        """Forward/backward one minibatch in micro-batches (gradient accumulation).
+
+        Attention with a relation bias materializes ``B x heads x L x L`` scores per layer, so
+        large minibatches don't fit in GPU memory in one pass. Gradients are identical to a
+        single pass because each micro-batch loss is weighted by its share of the minibatch.
+        On CUDA OOM the micro-batch size is halved and the minibatch is retried.
+        """
+        cfg = self.cfg
+        total = tensors[0].shape[0]
+        while True:
+            self.opt.zero_grad(set_to_none=True)
+            sums = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "approx_kl": 0.0, "clip_frac": 0.0}
+            try:
+                for lo in range(0, total, self.micro_batch_size):
+                    o, m, act, old_logp, old_v, a, ret = (t[lo : lo + self.micro_batch_size] for t in tensors)
+                    with torch.autocast(self.device.type, dtype=torch.bfloat16, enabled=self.use_amp):
+                        logits, value = self.model(o)
+                    logits = masked_logits(logits.float(), m)
+                    value = value.float()
+                    logp_all = torch.log_softmax(logits, -1)
+                    logp = logp_all.gather(1, act[:, None]).squeeze(1)
+                    entropy = -(logp_all.exp() * logp_all.masked_fill(~m, 0.0)).sum(-1).mean()
+                    ratio = (logp - old_logp).exp()
+                    pg = -torch.min(ratio * a, ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * a).mean()
+                    v_clipped = old_v + (value - old_v).clamp(-cfg.clip, cfg.clip)
+                    v_loss = (
+                        0.5
+                        * torch.max(
+                            F.mse_loss(value, ret, reduction="none"),
+                            F.mse_loss(v_clipped, ret, reduction="none"),
+                        ).mean()
+                    )
+                    loss = pg + cfg.value_coef * v_loss - ent_coef * entropy
+                    w = o.shape[0] / total
+                    (loss * w).backward()
+                    with torch.no_grad():
+                        sums["policy_loss"] += pg.item() * w
+                        sums["value_loss"] += v_loss.item() * w
+                        sums["entropy"] += entropy.item() * w
+                        sums["approx_kl"] += ((ratio - 1) - (logp - old_logp)).mean().item() * w
+                        sums["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean().item() * w
+                return sums
+            except torch.OutOfMemoryError:
+                if self.micro_batch_size <= 1:
+                    raise
+                self.opt.zero_grad(set_to_none=True)
+                if self.device.type == "cuda":
+                    torch.cuda.empty_cache()
+                self.micro_batch_size //= 2
+                print(f"  CUDA out of memory: retrying with micro_batch_size={self.micro_batch_size}")
 
     def learn(self) -> dict:
         cfg = self.cfg
@@ -356,43 +414,17 @@ class Trainer:
             perm = torch.randperm(n, device=dev)
             for start in range(0, n, cfg.minibatch_size):
                 b = perm[start : start + cfg.minibatch_size]
-                with torch.autocast(dev.type, dtype=torch.bfloat16, enabled=self.use_amp):
-                    logits, value = self.model(obs[b])
-                logits = masked_logits(logits.float(), mask[b])
-                value = value.float()
-                logp_all = torch.log_softmax(logits, -1)
-                logp = logp_all.gather(1, act[b, None]).squeeze(1)
-                probs = logp_all.exp()
-                entropy = -(probs * logp_all.masked_fill(~mask[b], 0.0)).sum(-1).mean()
-
+                # Normalize advantages over the whole minibatch, not per micro-batch.
                 a = adv_t[b]
                 a = (a - a.mean()) / (a.std() + 1e-8)
-                ratio = (logp - old_logp[b]).exp()
-                pg = -torch.min(ratio * a, ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * a).mean()
-                v_clipped = old_v[b] + (value - old_v[b]).clamp(-cfg.clip, cfg.clip)
-                v_loss = (
-                    0.5
-                    * torch.max(
-                        F.mse_loss(value, ret_t[b], reduction="none"),
-                        F.mse_loss(v_clipped, ret_t[b], reduction="none"),
-                    ).mean()
-                )
-                loss = pg + cfg.value_coef * v_loss - ent_coef * entropy
-
-                self.opt.zero_grad(set_to_none=True)
-                loss.backward()
+                tensors = (obs[b], mask[b], act[b], old_logp[b], old_v[b], a, ret_t[b])
+                mb_stats = self._accumulate_gradients(tensors, ent_coef)
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), cfg.max_grad_norm)
                 self.opt.step()
-
-                with torch.no_grad():
-                    kl = ((ratio - 1) - (logp - old_logp[b])).mean().item()
-                    stats["policy_loss"] += pg.item()
-                    stats["value_loss"] += v_loss.item()
-                    stats["entropy"] += entropy.item()
-                    stats["approx_kl"] += kl
-                    stats["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean().item()
+                for k, v in mb_stats.items():
+                    stats[k] += v
                 batches += 1
-                if cfg.target_kl and kl > 1.5 * cfg.target_kl:
+                if cfg.target_kl and mb_stats["approx_kl"] > 1.5 * cfg.target_kl:
                     stop = True
                     break
             if stop:

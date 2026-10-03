@@ -2,6 +2,15 @@
 
 Living status document. Update it at the end of every work session (newest first).
 
+## 2026-10-03 — First GPU run feedback
+
+* The owner's first `warmup` run (12 GB GPU) crashed with CUDA OOM in `learn()`: a
+  4096-sample minibatch through 6 layers materialized a 4096×8×152×152 fp32 attention
+  matrix (exactly the 3,028,287,488-byte allocation that failed).
+* Fix: micro-batched gradient accumulation (`micro_batch_size`, default 512) with
+  automatic halving on OOM; the rollout value bootstrap is chunked too. Tests prove
+  micro-batched gradients equal single-pass gradients and that OOM backoff works.
+
 ## 2026-10-01 — Initial build (session 1)
 
 ### Delivered
