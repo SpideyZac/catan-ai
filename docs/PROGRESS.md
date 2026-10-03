@@ -2,6 +2,27 @@
 
 Living status document. Update it at the end of every work session (newest first).
 
+## 2026-10-03 — Warm-up → self-play handoff fix
+
+* Diagnosed the regression after resuming the warm-up into the full preset (heuristic win
+  rate 0.29 → ~0.08, entropy 0.58 → 1.5): the LR/entropy cosines ran over the absolute
+  update counter, so update 1501 of a 20000-update schedule jumped LR 3e-5 → 2.96e-4 and
+  the entropy bonus 0.002 → 0.0099. Removing all heuristic seats at the same time also
+  removed the only fixed reference.
+* `schedule_start_update`: the cosine now runs from it to `total_updates`. Automatic on
+  resume: kept for the same run, set to the checkpoint's update when the schedule settings
+  change (logged).
+* `bot_seats` is a float: the fractional part is the per-game probability of one more
+  scripted seat (`0.5` = a heuristic bot in half the games).
+* `player_counts` (`--player-counts 2,3,4`) mixes 2/3/4-player games in one run; extra
+  sizes get their own eval (`eval/heuristic_win_rate_2p`, …). The encoding already
+  supported 2-4 players, but presets still train 4-player only, so the model is
+  out of distribution in 2/3-player rooms until trained with this flag.
+* Presets: warm-up 1500 → 3000 updates; new `selfplay` preset (= `full` with LR 1e-4,
+  entropy 0.003 → 0.001, `bot_kind heuristic`, `bot_seats 0.5`). Handoff is now
+  `--preset selfplay --resume runs/warmup/final.pt`. The `runs/main` checkpoints from the
+  bad handoff should be discarded.
+
 ## 2026-10-03 — Training throughput (model v2)
 
 * Owner measured 931 sps on an RTX 5070 with the warmup preset (1.55M-param model):
