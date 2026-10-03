@@ -1,23 +1,74 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, storage } from "../lib/api";
+import { useMusic } from "../lib/music";
+import type { BotLevel, RoomSettings } from "../lib/types";
 import { TerrainArt } from "./art";
+import { MusicToggle, SoundToggle } from "./AudioToggles";
+import { RulesFields } from "./Lobby";
+import { Modal } from "./Modals";
 
-export type QuickStart = "ai" | "local" | "online" | "watch";
+export type QuickMode = "ai" | "local" | "online" | "watch";
 
-const MODES: { id: QuickStart; title: string; text: string }[] = [
-  { id: "ai", title: "Play vs AI", text: "Jump straight into a game against three computer opponents." },
+/** Table rules and AI level chosen on the home page for the instant-start modes. */
+export interface QuickSetup {
+  settings: RoomSettings;
+  bot: string;
+}
+
+export interface QuickStart {
+  mode: QuickMode;
+  setup?: QuickSetup;
+}
+
+const MODES: { id: QuickMode; title: string; text: string }[] = [
+  { id: "ai", title: "Play vs AI", text: "Pick the table size, AI level and rules, then jump straight into a game." },
   { id: "local", title: "Pass & Play", text: "Several people share this device; hands stay hidden between turns." },
   { id: "online", title: "Play online", text: "Open a table and send the invite link to friends on their own devices." },
-  { id: "watch", title: "Watch the AI", text: "Sit back and watch four AIs negotiate, trade and race to 10." },
+  { id: "watch", title: "Watch the AI", text: "Sit back and watch AIs negotiate, trade and race to victory." },
 ];
+
+const SETUP_KEY = "catan.quickSetup";
+const DEFAULT_SETUP: QuickSetup = {
+  settings: { num_players: 4, vp_to_win: 10, max_trade_offers_per_turn: 5, beginner_board: false, bot_speed: "normal" },
+  bot: "heuristic",
+};
+
+function loadSetup(): QuickSetup {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETUP_KEY) ?? "null") as Partial<QuickSetup> | null;
+    if (!saved) return DEFAULT_SETUP;
+    return {
+      settings: { ...DEFAULT_SETUP.settings, ...saved.settings },
+      bot: typeof saved.bot === "string" ? saved.bot : DEFAULT_SETUP.bot,
+    };
+  } catch {
+    return DEFAULT_SETUP;
+  }
+}
+
+function saveSetup(setup: QuickSetup) {
+  try {
+    localStorage.setItem(SETUP_KEY, JSON.stringify(setup));
+  } catch {
+    /* storage unavailable - the choice just isn't remembered */
+  }
+}
 
 export function Home({ onEnter }: { onEnter: (code: string, quick?: QuickStart) => void }) {
   const [name, setName] = useState(storage.name());
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [setupFor, setSetupFor] = useState<"ai" | "watch" | null>(null);
+  useMusic("lobby");
 
   const validName = name.trim().length > 0;
+  const choose = (mode: QuickMode) => {
+    if (!validName) return setError("Enter your name first");
+    setError(null);
+    if (mode === "ai" || mode === "watch") setSetupFor(mode);
+    else void create({ mode });
+  };
   const create = async (quick: QuickStart) => {
     if (!validName) return setError("Enter your name first");
     setBusy(true);
@@ -86,6 +137,10 @@ export function Home({ onEnter }: { onEnter: (code: string, quick?: QuickStart) 
       </svg>
 
       <div className="home-card panel">
+        <div className="audio-corner">
+          <MusicToggle />
+          <SoundToggle />
+        </div>
         <h1 className="title">
           <span className="logo-hex big" /> Catan <em>AI</em>
         </h1>
@@ -102,7 +157,7 @@ export function Home({ onEnter }: { onEnter: (code: string, quick?: QuickStart) 
         </label>
         <div className="modes">
           {MODES.map((m) => (
-            <button key={m.id} className="mode" disabled={busy} onClick={() => create(m.id)}>
+            <button key={m.id} className="mode" disabled={busy} onClick={() => choose(m.id)}>
               <b>{m.title}</b>
               <span>{m.text}</span>
             </button>
@@ -121,6 +176,81 @@ export function Home({ onEnter }: { onEnter: (code: string, quick?: QuickStart) 
         </form>
         {error && <p className="warn">{error}</p>}
       </div>
+      {setupFor && (
+        <QuickSetupModal
+          mode={setupFor}
+          busy={busy}
+          onCancel={() => setSetupFor(null)}
+          onStart={(setup) => {
+            saveSetup(setup);
+            setSetupFor(null);
+            void create({ mode: setupFor, setup });
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/** Rules and AI level for "Play vs AI" / "Watch the AI" before the game starts. */
+function QuickSetupModal({
+  mode,
+  busy,
+  onCancel,
+  onStart,
+}: {
+  mode: "ai" | "watch";
+  busy: boolean;
+  onCancel: () => void;
+  onStart: (setup: QuickSetup) => void;
+}) {
+  const [setup, setSetup] = useState(loadSetup);
+  const [bots, setBots] = useState<BotLevel[]>([]);
+  useEffect(() => {
+    api
+      .bots()
+      .then(setBots)
+      .catch(() => setBots([]));
+  }, []);
+  // A remembered level may have disappeared (e.g. a checkpoint removed from the server).
+  const known = bots.length === 0 || bots.some((b) => b.id === setup.bot);
+  const bot = known ? setup.bot : DEFAULT_SETUP.bot;
+  const level = bots.find((b) => b.id === bot);
+  const n = setup.settings.num_players;
+  const opponents = mode === "ai" ? n - 1 : n;
+
+  return (
+    <Modal title={mode === "ai" ? "Play vs AI" : "Watch the AI"} onClose={onCancel}>
+      <div className="quick-setup">
+        <RulesFields
+          settings={setup.settings}
+          onChange={(patch) => setSetup({ ...setup, settings: { ...setup.settings, ...patch } })}
+        />
+        <label className="field">
+          <span>AI level</span>
+          <select value={bot} onChange={(e) => setSetup({ ...setup, bot: e.target.value })}>
+            {(bots.length ? bots : [{ id: "heuristic", name: "Heuristic", description: "" }]).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {level?.description && <p className="muted hint">{level.description}</p>}
+        <p className="muted hint">
+          {mode === "ai"
+            ? `You against ${opponents} computer opponent${opponents > 1 ? "s" : ""}.`
+            : `${opponents} computer players at the table.`}
+        </p>
+        <div className="btn-row">
+          <button className="btn good" disabled={busy} onClick={() => onStart({ ...setup, bot })}>
+            {mode === "ai" ? "Start game" : "Start watching"}
+          </button>
+          <button className="btn ghost" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }

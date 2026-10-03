@@ -3,6 +3,8 @@ import { api, type RoomConnection } from "../lib/api";
 import type { BotLevel, RoomSettings, StateMessage } from "../lib/types";
 import { ChatPanel } from "./GameScreen";
 import { PLAYER_COLORS, SettlementShape } from "./art";
+import { useMusic } from "../lib/music";
+import { MusicToggle, SoundToggle } from "./AudioToggles";
 
 export function Lobby({ conn, state, onLeave }: { conn: RoomConnection; state: StateMessage; onLeave: () => void }) {
   const { room, you } = state;
@@ -20,6 +22,7 @@ export function Lobby({ conn, state, onLeave }: { conn: RoomConnection; state: S
   const unclaimed = room.seats.filter((s) => s.kind === "human" && !s.client_id).length;
   const link = `${location.origin}/room/${room.code}`;
   const iHaveSeat = you.seats.length > 0;
+  useMusic("lobby");
 
   return (
     <div className="lobby">
@@ -27,20 +30,24 @@ export function Lobby({ conn, state, onLeave }: { conn: RoomConnection; state: S
         <div className="brand" onClick={onLeave} role="button">
           <span className="logo-hex" /> Catan <em>AI</em>
         </div>
-        <div className="code-box">
-          <span className="muted">Table code</span>
-          <b>{room.code}</b>
-          <button
-            className="btn small"
-            onClick={() => {
-              navigator.clipboard?.writeText(link).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              });
-            }}
-          >
-            {copied ? "Link copied!" : "Copy invite link"}
-          </button>
+        <div className="lobby-head-right">
+          <MusicToggle />
+          <SoundToggle />
+          <div className="code-box">
+            <span className="muted">Table code</span>
+            <b>{room.code}</b>
+            <button
+              className="btn small"
+              onClick={() => {
+                navigator.clipboard?.writeText(link).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                });
+              }}
+            >
+              {copied ? "Link copied!" : "Copy invite link"}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -135,61 +142,7 @@ export function Lobby({ conn, state, onLeave }: { conn: RoomConnection; state: S
 
         <section className="panel settings-panel">
           <h2>Table rules</h2>
-          <label className="field">
-            <span>Players</span>
-            <select disabled={!host} value={settings.num_players} onChange={(e) => update({ num_players: +e.target.value })}>
-              {[2, 3, 4].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Points to win</span>
-            <select disabled={!host} value={settings.vp_to_win} onChange={(e) => update({ vp_to_win: +e.target.value })}>
-              {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Trade offers per turn</span>
-            <select
-              disabled={!host}
-              value={settings.max_trade_offers_per_turn}
-              onChange={(e) => update({ max_trade_offers_per_turn: +e.target.value })}
-            >
-              {[0, 1, 2, 3, 5, 8, 10].map((n) => (
-                <option key={n} value={n}>
-                  {n === 0 ? "No player trading" : n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>AI speed</span>
-            <select
-              disabled={!host}
-              value={settings.bot_speed}
-              onChange={(e) => update({ bot_speed: e.target.value as RoomSettings["bot_speed"] })}
-            >
-              <option value="slow">Relaxed</option>
-              <option value="normal">Normal</option>
-              <option value="fast">Fast</option>
-            </select>
-          </label>
-          <label className="field check">
-            <input
-              type="checkbox"
-              disabled={!host}
-              checked={settings.beginner_board}
-              onChange={(e) => update({ beginner_board: e.target.checked })}
-            />
-            <span>Beginner board layout</span>
-          </label>
+          <RulesFields settings={settings} disabled={!host} onChange={update} />
         </section>
 
         <section className="panel chat-panel">
@@ -203,5 +156,76 @@ export function Lobby({ conn, state, onLeave }: { conn: RoomConnection; state: S
         </div>
       )}
     </div>
+  );
+}
+
+/** The editable table rules, shared by the lobby and the quick-start setup on the home page. */
+export function RulesFields({
+  settings,
+  onChange,
+  disabled = false,
+}: {
+  settings: RoomSettings;
+  onChange: (patch: Partial<RoomSettings>) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <>
+      <label className="field">
+        <span>Players</span>
+        <select disabled={disabled} value={settings.num_players} onChange={(e) => onChange({ num_players: +e.target.value })}>
+          {[2, 3, 4].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span>Points to win</span>
+        <select disabled={disabled} value={settings.vp_to_win} onChange={(e) => onChange({ vp_to_win: +e.target.value })}>
+          {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span>Trade offers per turn</span>
+        <select
+          disabled={disabled}
+          value={settings.max_trade_offers_per_turn}
+          onChange={(e) => onChange({ max_trade_offers_per_turn: +e.target.value })}
+        >
+          {[0, 1, 2, 3, 5, 8, 10].map((n) => (
+            <option key={n} value={n}>
+              {n === 0 ? "No player trading" : n}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span>AI speed</span>
+        <select
+          disabled={disabled}
+          value={settings.bot_speed}
+          onChange={(e) => onChange({ bot_speed: e.target.value as RoomSettings["bot_speed"] })}
+        >
+          <option value="slow">Relaxed</option>
+          <option value="normal">Normal</option>
+          <option value="fast">Fast</option>
+        </select>
+      </label>
+      <label className="field check">
+        <input
+          type="checkbox"
+          disabled={disabled}
+          checked={settings.beginner_board}
+          onChange={(e) => onChange({ beginner_board: e.target.checked })}
+        />
+        <span>Beginner board layout</span>
+      </label>
+    </>
   );
 }

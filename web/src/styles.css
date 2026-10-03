@@ -141,6 +141,34 @@ h3 {
   box-shadow: none;
   border-color: rgba(91, 58, 30, 0.5);
 }
+.music-toggle.off {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+.audio-corner {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+}
+.lobby-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.lobby-head .btn.ghost {
+  color: var(--parch-100);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.quick-setup .field select {
+  min-width: 11em;
+}
+.quick-setup .hint {
+  font-size: 0.85rem;
+  margin: 4px 0 0;
+}
 .btn.small {
   padding: 4px 10px;
   font-size: 0.85rem;

@@ -11,9 +11,7 @@ function parseRoute(): { code: string | null } {
 
 export default function App() {
   const [route, setRoute] = useState(parseRoute);
-  const [quick, setQuick] = useState<QuickStart | undefined>(
-    () => (sessionStorage.getItem("catan.quick") as QuickStart | null) ?? undefined,
-  );
+  const [quick, setQuick] = useState<QuickStart | undefined>(readQuick);
   useEffect(() => {
     const onPop = () => setRoute(parseRoute());
     window.addEventListener("popstate", onPop);
@@ -29,7 +27,7 @@ export default function App() {
     return (
       <Home
         onEnter={(code, q) => {
-          if (q) sessionStorage.setItem("catan.quick", q);
+          if (q) sessionStorage.setItem("catan.quick", JSON.stringify(q));
           setQuick(q);
           go(`/room/${code}`);
         }}
@@ -52,6 +50,16 @@ export default function App() {
       )}
     </NameGate>
   );
+}
+
+/** The pending quick-start choice, kept in sessionStorage so a reload mid-handoff keeps it. */
+function readQuick(): QuickStart | undefined {
+  try {
+    const q = JSON.parse(sessionStorage.getItem("catan.quick") ?? "null") as QuickStart | null;
+    return q && typeof q.mode === "string" ? q : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Ask for a display name before joining via an invite link. */
@@ -111,17 +119,21 @@ function Room({
   useEffect(() => {
     if (!quick || quickSent.current || !state || !state.you.is_host || state.room.status !== "lobby") return;
     quickSent.current = true;
-    const n = state.room.seats.length;
-    if (quick === "ai") {
-      conn.configure({ seats: [{ kind: "human" }, ...Array.from({ length: n - 1 }, () => ({ kind: "bot" as const, bot: "heuristic" }))] });
+    const human = { kind: "human" as const };
+    if (quick.mode === "ai" || quick.mode === "watch") {
+      const { settings, bot } = quick.setup ?? { settings: state.room.settings, bot: "heuristic" };
+      const ai = { kind: "bot" as const, bot };
+      const n = settings.num_players;
+      const seats = quick.mode === "ai" ? [human, ...Array(n - 1).fill(ai)] : Array(n).fill(ai);
+      // Settings are applied before seats on the server, so the seat list matches the new size.
+      conn.configure({ settings, seats });
       conn.start();
-    } else if (quick === "watch") {
-      conn.configure({ seats: Array.from({ length: n }, () => ({ kind: "bot" as const, bot: "heuristic" })) });
-      conn.start();
-    } else if (quick === "local") {
-      conn.configure({ seats: Array.from({ length: n }, () => ({ kind: "human" as const })) });
-    } else if (quick === "online") {
-      conn.configure({ seats: [{ kind: "human" }, { kind: "human" }, ...Array.from({ length: n - 2 }, () => ({ kind: "bot" as const, bot: "heuristic" }))] });
+    } else {
+      const n = state.room.seats.length;
+      const bot = { kind: "bot" as const, bot: "heuristic" };
+      conn.configure({
+        seats: quick.mode === "local" ? Array(n).fill(human) : [human, human, ...Array(n - 2).fill(bot)],
+      });
     }
     onQuickDone();
   }, [state, quick]); // eslint-disable-line react-hooks/exhaustive-deps
