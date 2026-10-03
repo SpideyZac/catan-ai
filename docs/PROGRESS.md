@@ -33,6 +33,8 @@ Living status document. Update it at the end of every work session (newest first
   samples/s, peak 2.5 GiB. `auto` already selects the efficient kernel, so the defaults
   (auto + compile) are optimal. Learner went 7,843 → 21,584 samples/s overall (2.75×);
   expected training throughput ~5,000 sps vs 931 at the start of the day.
+* **Measured: 5,700 sps** in the warmup preset (6.1× the original 931). Warm-up ≈ 2.4 h,
+  full preset ≈ 2.7 days on the RTX 5070.
 
 ## 2026-10-03 — First GPU run feedback
 
