@@ -3,7 +3,9 @@ import type { RoomConnection } from "../lib/api";
 import type { Action, GameEvent, Hand, LogEntry, StateMessage } from "../lib/types";
 import { COSTS, DEV_CARDS, RESOURCES, covers, emptyHand } from "../lib/types";
 import { DEV_LABEL, PHASE_HINT, describe } from "../lib/format";
-import { type Sfx, play, setMuted, sfxFor, useMuted } from "../lib/sound";
+import { type Sfx, play, sfxFor } from "../lib/sound";
+import { useMusic } from "../lib/music";
+import { MusicToggle, SoundToggle } from "./AudioToggles";
 import { Board, NO_TARGETS, type BoardTargets } from "./Board";
 import { DevCard, HandChips, ResourceCard } from "./Cards";
 import { Dice } from "./Dice";
@@ -165,8 +167,8 @@ export function GameScreen({ conn, state, onLeave }: { conn: RoomConnection; sta
     return () => window.clearTimeout(timer);
   }, [game.log]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ---------------------------------------------------------------- sounds: turn + chat
-  const muted = useMuted();
+  // ---------------------------------------------------------------- sounds: music, turn + chat
+  useMusic("game");
   const prevCurrent = useRef(anyView.current);
   useEffect(() => {
     if (anyView.current !== prevCurrent.current && mySeats.includes(anyView.current) && phase !== "game_over") {
@@ -226,15 +228,8 @@ export function GameScreen({ conn, state, onLeave }: { conn: RoomConnection; sta
             {room.code}
           </span>
           <span className={`conn ${conn.status}`} title={`Connection: ${conn.status}`} />
-          <button
-            className="btn ghost small sound-toggle"
-            onClick={() => setMuted(!muted)}
-            title={muted ? "Unmute sounds" : "Mute sounds"}
-            aria-label={muted ? "Unmute sounds" : "Mute sounds"}
-            aria-pressed={muted}
-          >
-            {muted ? "🔇" : "🔊"}
-          </button>
+          <MusicToggle />
+          <SoundToggle />
           <button className="btn ghost small" onClick={() => setShowRules(true)}>
             Rules
           </button>

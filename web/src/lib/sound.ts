@@ -76,6 +76,12 @@ function audio(): AudioContext | null {
   return ctx;
 }
 
+/** The shared AudioContext once the first user gesture has created it (null before that).
+ *  Used by the music player so it never creates a context the browser would block. */
+export function existingAudio(): AudioContext | null {
+  return ctx;
+}
+
 if (typeof window !== "undefined") {
   const unlock = () => {
     const c = audio();
