@@ -3,6 +3,7 @@ import type { RoomConnection } from "../lib/api";
 import type { Action, GameEvent, Hand, LogEntry, StateMessage } from "../lib/types";
 import { COSTS, DEV_CARDS, RESOURCES, covers, emptyHand } from "../lib/types";
 import { DEV_LABEL, PHASE_HINT, describe } from "../lib/format";
+import { type Sfx, play, setMuted, sfxFor, useMuted } from "../lib/sound";
 import { Board, NO_TARGETS, type BoardTargets } from "./Board";
 import { DevCard, HandChips, ResourceCard } from "./Cards";
 import { Dice } from "./Dice";
@@ -133,7 +134,12 @@ export function GameScreen({ conn, state, onLeave }: { conn: RoomConnection; sta
     if (!fresh.length) return;
     seenSeq.current = fresh[fresh.length - 1].seq;
     const add: Toast[] = [];
+    const sfx: Sfx[] = [];
+    const ownSeat = (s: number | null) => s !== null && (mySeats.includes(s) || !mySeats.length);
     for (const { seq, event } of fresh) {
+      const fx = sfxFor(event, ownSeat);
+      if (fx) sfx.push(fx);
+      if (event.type === "dice_rolled" && event.dice[0] + event.dice[1] === 7) sfx.push("seven");
       const mine =
         (event.type === "stolen" && (mySeats.includes(event.victim) || mySeats.includes(event.thief))) ||
         (event.type === "trade_executed" && (mySeats.includes(event.partner) || mySeats.includes(event.proposer)));
@@ -151,12 +157,29 @@ export function GameScreen({ conn, state, onLeave }: { conn: RoomConnection; sta
         add.push({ id: seq, text: describe(event, nameOf), tone });
       }
     }
+    play(sfx);
     if (!add.length) return;
     setToasts((t) => [...t, ...add].slice(-4));
     const ids = add.map((t) => t.id);
     const timer = window.setTimeout(() => setToasts((t) => t.filter((x) => !ids.includes(x.id))), 4500);
     return () => window.clearTimeout(timer);
   }, [game.log]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------------------------------------------------------------- sounds: turn + chat
+  const muted = useMuted();
+  const prevCurrent = useRef(anyView.current);
+  useEffect(() => {
+    if (anyView.current !== prevCurrent.current && mySeats.includes(anyView.current) && phase !== "game_over") {
+      window.setTimeout(() => play(["your_turn"]), 250);
+    }
+    prevCurrent.current = anyView.current;
+  }, [anyView.current]); // eslint-disable-line react-hooks/exhaustive-deps
+  const chatSeen = useRef(state.room.chat.length);
+  useEffect(() => {
+    const chat = state.room.chat;
+    if (chat.slice(chatSeen.current).some((m) => m.client_id !== you.client_id)) play(["chat"]);
+    chatSeen.current = chat.length;
+  }, [state.room.chat.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------- side panel
   const [tab, setTab] = useState<SideTab>("log");
@@ -203,6 +226,15 @@ export function GameScreen({ conn, state, onLeave }: { conn: RoomConnection; sta
             {room.code}
           </span>
           <span className={`conn ${conn.status}`} title={`Connection: ${conn.status}`} />
+          <button
+            className="btn ghost small sound-toggle"
+            onClick={() => setMuted(!muted)}
+            title={muted ? "Unmute sounds" : "Mute sounds"}
+            aria-label={muted ? "Unmute sounds" : "Mute sounds"}
+            aria-pressed={muted}
+          >
+            {muted ? "🔇" : "🔊"}
+          </button>
           <button className="btn ghost small" onClick={() => setShowRules(true)}>
             Rules
           </button>
