@@ -143,9 +143,10 @@ are reported as "unavailable" (e.g. flash attention can't take the relation bias
 extra on Windows). With `--compile true` the trainer compiles only the learner's fixed-size
 micro-batches, and falls back to eager mode with a warning if compilation fails.
 
-Reference (RTX 5070, model v2, d=160, 6 layers, micro-batch 1024): learner fwd+bwd
-7,843 samples/s eager vs **15,137 samples/s with `torch.compile`** (peak 3.65 GiB), env
-~271k decisions/s. Eager training ran at ~2,300 sps (`roll 2.0s / learn 12.5s`), so the
+Reference (RTX 5070, model v2, d=160, 6 layers, 5 heads, micro-batch 1024): learner
+fwd+bwd 9,503 samples/s with the math attention kernel, 15,609 with the memory-efficient
+kernel (what `auto` picks), **21,584 with `torch.compile`** (peak 2.5 GiB); env ~271k
+decisions/s. Eager training ran at ~2,300 sps (`roll 2.0s / learn 12.5s`), so the
 learner dominates; compile is therefore on by default (`--compile false` to disable).
 With 8 heads (width 20) the memory-efficient attention kernel was rejected; the presets
 now use 5 heads (width 32). If you still need more speed, `--epochs 2` cuts learner time

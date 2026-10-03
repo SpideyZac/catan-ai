@@ -29,6 +29,10 @@ Living status document. Update it at the end of every work session (newest first
 * Re-bench with 5 heads: eager 9,545, compiled **18,063** samples/s. Efficient attention was
   still refused because the relation-bias mask was a permuted view (last-dim stride 5);
   it is now made contiguous, and `catan-bench` also tries `efficient + compile`.
+* Final RTX 5070 bench: math 9,503 · efficient (= auto) 15,609 · **compiled 21,584**
+  samples/s, peak 2.5 GiB. `auto` already selects the efficient kernel, so the defaults
+  (auto + compile) are optimal. Learner went 7,843 → 21,584 samples/s overall (2.75×);
+  expected training throughput ~5,000 sps vs 931 at the start of the day.
 
 ## 2026-10-03 — First GPU run feedback
 
