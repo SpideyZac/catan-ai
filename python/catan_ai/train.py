@@ -5,8 +5,9 @@ Examples::
     # Quick smoke test (CPU friendly, a few minutes)
     uv run catan-train --preset smoke --run-dir runs/smoke
 
-    # Full training on a GPU
-    uv run catan-train --preset full --run-dir runs/main
+    # Full training on a GPU: warm-up against heuristic bots, then self-play
+    uv run catan-train --preset warmup --run-dir runs/warmup
+    uv run catan-train --preset selfplay --run-dir runs/main --resume runs/warmup/final.pt
 
     # Override anything, including model fields
     uv run catan-train --preset full --num-envs 512 --model.d-model 192 --model.n-layers 6
@@ -44,7 +45,7 @@ PRESETS: dict[str, dict] = {
     "warmup": {
         "num_envs": 256,
         "rollout_steps": 128,
-        "total_updates": 1500,
+        "total_updates": 3000,
         "bot_kind": "heuristic",
         "bot_seats": 2,
         "pool_prob": 0.0,
@@ -61,6 +62,17 @@ PRESETS: dict[str, dict] = {
         "pool_prob": 0.3,
         "model": {"d_model": 160, "n_layers": 6, "n_heads": 5},
     },
+}
+# Continuation of a warm-up checkpoint: "full" with a gentler start (the warm-up ends at
+# LR 3e-5 / entropy 0.002; starting at 3e-4 / 0.01 undoes it) and a heuristic bot in half
+# the games as a fixed anchor, so self-play cannot drift into forgetting how to beat it.
+PRESETS["selfplay"] = {
+    **PRESETS["full"],
+    "lr": 1e-4,
+    "entropy_coef": 0.003,
+    "entropy_final_coef": 0.001,
+    "bot_kind": "heuristic",
+    "bot_seats": 0.5,
 }
 
 

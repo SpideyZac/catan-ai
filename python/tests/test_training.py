@@ -305,3 +305,13 @@ def test_cli_parses_player_counts_and_fractional_bot_seats():
     args = build_parser().parse_args(["--preset", "smoke", "--player-counts", "3,4", "--bot-seats", "0.3"])
     cfg = config_from_args(args)
     assert cfg.player_counts == [3, 4] and cfg.bot_seats == pytest.approx(0.3)
+
+
+def test_selfplay_preset_continues_warmup_gently():
+    from catan_ai.train import PRESETS
+
+    warm, cont = PRESETS["warmup"], PRESETS["selfplay"]
+    assert cont["model"] == warm["model"] == PRESETS["full"]["model"]
+    assert cont["total_updates"] > warm["total_updates"]
+    assert cont["lr"] < TrainConfig().lr and cont["entropy_coef"] < TrainConfig().entropy_coef
+    assert cont["bot_kind"] == "heuristic" and 0 < cont["bot_seats"] < 1

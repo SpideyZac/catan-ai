@@ -43,7 +43,7 @@ Training is designed for a GPU machine (see [docs/TRAINING.md](docs/TRAINING.md)
 uv sync --extra train                    # add --extra cu130 on Windows + NVIDIA
 uv run catan-train --preset smoke        # 2-minute pipeline check
 uv run catan-train --preset warmup --run-dir runs/warmup
-uv run catan-train --preset full --run-dir runs/main --resume runs/warmup/latest.pt --bot-kind ""
+uv run catan-train --preset selfplay --run-dir runs/main --resume runs/warmup/final.pt
 uv run catan-eval neural:runs/main/latest.pt heuristic heuristic heuristic --games 400
 cp runs/main/latest.pt models/main.pt    # appears in the lobby as "Neural (main)"
 ```

@@ -105,12 +105,15 @@ VRAM for the full preset. CPU cores matter too: the env steps in parallel with r
 # 0. Sanity check (minutes, any machine)
 uv run catan-train --preset smoke --run-dir runs/smoke
 
-# 1. Warm-up against heuristic bots (fast early signal; ~1-3 h on a modern GPU)
+# 1. Warm-up against heuristic bots (fast early signal; 3000 updates, ~98M decisions)
 uv run catan-train --preset warmup --run-dir runs/warmup
 
-# 2. Main self-play run initialised from the warm-up weights
-uv run catan-train --preset full --run-dir runs/main --resume runs/warmup/latest.pt \
-    --bot-kind "" --bot-seats 0
+# 2. Self-play + league initialised from the warm-up weights
+uv run catan-train --preset selfplay --run-dir runs/main --resume runs/warmup/final.pt
+
+# Same, but also learn 2- and 3-player games
+uv run catan-train --preset selfplay --run-dir runs/main --resume runs/warmup/final.pt \
+    --player-counts 2,3,4
 
 # Resume an interrupted run (same config)
 uv run catan-train --config runs/main/config.json --resume runs/main/latest.pt
@@ -120,7 +123,12 @@ uv run catan-train --preset full --num-envs 1024 --minibatch-size 16384 --model.
 ```
 
 Resuming restores the model, optimizer, update counter and league pool. The `warmup` and
-`full` presets share the same architecture so step 2 can start from the warm-up weights.
+`full`/`selfplay` presets share the same architecture so step 2 can start from the warm-up
+weights. `selfplay` is `full` with a gentler start (LR 1e-4, entropy 0.003 → 0.001) and a
+heuristic bot in half of the games (`bot_seats 0.5`) as a fixed reference: in pure
+self-play nothing stops the policy drifting toward beating itself while forgetting how to
+beat the heuristic, and `eval/heuristic_win_rate` stays comparable with the warm-up.
+`--bot-kind ""` clears scripted opponents entirely.
 
 The LR and entropy cosines run from `schedule_start_update` to `total_updates` (absolute
 update numbers). Left unset, it is 0 for a fresh run, kept when resuming the same run, and
