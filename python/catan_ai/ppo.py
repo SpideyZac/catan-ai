@@ -224,9 +224,10 @@ class Trainer:
         self.use_amp = cfg.amp and self.device.type == "cuda"
         if cfg.attention not in BACKENDS:
             raise ValueError(f"attention must be one of {sorted(BACKENDS)}")
-        # Compiled view of the learner model (shares parameters); opponents stay eager.
-        self.fwd = torch.compile(self.model) if cfg.compile else self.model
+        # Compiled view of the model for the learner's fixed-size micro-batches (shares
+        # parameters). Rollout/bootstrap batches vary in size and stay eager.
         self.micro_batch_size = max(1, min(cfg.micro_batch_size, cfg.minibatch_size))
+        self.fwd = self._maybe_compile() if cfg.compile else self.model
         self.writer = None
         try:
             from torch.utils.tensorboard import SummaryWriter
@@ -265,6 +266,23 @@ class Trainer:
         self.learner_seat[i] = -1  # chosen lazily among Python seats
 
     # ------------------------------------------------------------------ rollout
+    def _maybe_compile(self) -> torch.nn.Module:
+        """torch.compile the model, falling back to eager mode if compilation fails."""
+        try:
+            compiled = torch.compile(self.model)
+            probe = torch.zeros(self.micro_batch_size, OBS_SIZE, device=self.device)
+            with self._ctx():
+                logits, value = compiled(probe)
+            (logits.float().sum() + value.float().sum()).backward()
+            self.model.zero_grad(set_to_none=True)
+            print("torch.compile: enabled for the learner")
+            return compiled
+        except Exception as e:  # missing Triton/compiler, unsupported GPU, ...
+            self.model.zero_grad(set_to_none=True)
+            first = str(e).strip().splitlines()[0][:160] if str(e).strip() else ""
+            print(f"torch.compile unavailable ({type(e).__name__}: {first}); continuing without it")
+            return self.model
+
     def _ctx(self) -> contextlib.ExitStack:
         """Autocast + the configured attention backend, for every model call."""
         stack = contextlib.ExitStack()
@@ -276,9 +294,8 @@ class Trainer:
     def _policy(self, model, obs: np.ndarray, mask: np.ndarray, greedy: bool = False):
         o = torch.from_numpy(obs).to(self.device, non_blocking=True)
         m = torch.from_numpy(mask).to(self.device, non_blocking=True)
-        net = self.fwd if model is self.model else model
         with self._ctx():
-            logits, value = net(o)
+            logits, value = model(o)
         logits = masked_logits(logits.float(), m)
         if greedy:
             action = logits.argmax(-1)
@@ -351,7 +368,7 @@ class Trainer:
                 # Up to num_envs x 4 rows: chunk to keep attention memory bounded.
                 for chunk in o.split(max(self.micro_batch_size, self.n)):
                     with attention_context(self.cfg.attention):
-                        values.append(self.fwd(chunk)[1].float())
+                        values.append(self.model(chunk)[1].float())
             buf.bootstrap[self.last_idx[open_env, open_seat]] = torch.cat(values).cpu().numpy()
         return {"transitions": buf.size}
 

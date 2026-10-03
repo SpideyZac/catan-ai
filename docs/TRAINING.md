@@ -81,7 +81,8 @@ therefore keeps one trajectory **chain per (env, seat)**:
 git clone <repo> && cd catan-ai
 # Linux + NVIDIA: PyPI torch already ships CUDA
 uv sync --extra train
-# Windows + NVIDIA (PyPI torch is CPU-only on Windows):
+# Windows + NVIDIA (PyPI torch is CPU-only on Windows); also installs triton-windows
+# so `--compile true` works:
 uv sync --extra train --extra cu130
 uv run python -c "import torch; print(torch.cuda.is_available())"
 ```
@@ -136,7 +137,9 @@ It measures env throughput and learner forward+backward samples/s for every
 and with `torch.compile`, reports peak memory, and prints the fastest flags, e.g.
 `--attention efficient --compile true`. Pass them to `catan-train`. Unsupported options
 are reported as "unavailable" (e.g. flash attention can't take the relation bias;
-`torch.compile` needs a working Triton install).
+`torch.compile` needs Triton: bundled with Linux torch, `triton-windows` via the `cu130`
+extra on Windows). With `--compile true` the trainer compiles only the learner's fixed-size
+micro-batches, and falls back to eager mode with a warning if compilation fails.
 
 Reference (RTX 5070, warmup preset, model v2, default flags): ~2,300 sps with
 `roll 2.0s / learn 12.5s` per update, so the learner dominates. If nothing else helps,

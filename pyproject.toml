@@ -31,6 +31,9 @@ cpu = [
 ]
 cu130 = [
     "torch>=2.4",
+    # Triton backend for torch.compile on Windows (Linux torch wheels already ship triton).
+    # Keep the minor version in step with the triton that torch itself pins (torch 2.14 -> 3.8).
+    "triton-windows~=3.8.0; sys_platform == 'win32'",
 ]
 
 [project.scripts]

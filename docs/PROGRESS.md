@@ -16,8 +16,12 @@ Living status document. Update it at the end of every work session (newest first
 * Measured by the owner on the RTX 5070: **931 → ~2,300 sps** (roll 2.0 s, learn 12.5 s per
   32,768-decision update). The learner is the bottleneck (~8 TFLOPS effective).
 * Added `catan-bench` (attention backend / `torch.compile` comparison on the real GPU) and
-  trainer flags `--attention` and `--compile`. Next: owner runs `catan-bench`, then we pick
-  defaults from the results.
+  trainer flags `--attention` and `--compile`.
+* `--attention math` gave the same 2,300 sps as `auto` (auto already used it), so the
+  attention backend is not the lever. Added `triton-windows~=3.8` (matches torch 2.14's
+  Triton) to the `cu130` extra so `torch.compile` can fuse the many small ops on Windows;
+  compile now falls back to eager instead of crashing. Awaiting the owner's
+  `catan-bench` numbers with compile.
 
 ## 2026-10-03 — First GPU run feedback
 

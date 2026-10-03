@@ -206,3 +206,14 @@ def test_bench_cli_runs(capsys):
     )
     out = capsys.readouterr().out
     assert "decisions/s" in out and "fastest:" in out
+
+
+def test_compile_falls_back_to_eager_when_unavailable(tmp_path, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("no triton here")
+
+    monkeypatch.setattr(torch, "compile", broken)
+    trainer = _tiny_trainer(tmp_path, compile=True)
+    assert trainer.fwd is trainer.model
+    stats = trainer._accumulate_gradients(_minibatch(trainer), 0.01)
+    assert all(np.isfinite(v) for v in stats.values())
