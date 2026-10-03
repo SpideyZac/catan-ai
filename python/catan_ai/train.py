@@ -38,6 +38,7 @@ PRESETS: dict[str, dict] = {
         "checkpoint_every": 5,
         "snapshot_every": 2,
         "model": {"d_model": 64, "n_layers": 2, "n_heads": 4},
+        "compile": False,
     },
     # Bootstrap against heuristic bots first (fast early signal), then switch to "full".
     "warmup": {
@@ -49,7 +50,7 @@ PRESETS: dict[str, dict] = {
         "pool_prob": 0.0,
         "vp_reward_scale": 0.05,
         # Same architecture as "full" so the warm-up checkpoint can be resumed there.
-        "model": {"d_model": 160, "n_layers": 6, "n_heads": 8},
+        "model": {"d_model": 160, "n_layers": 6, "n_heads": 5},
     },
     # Main self-play run with a league of past snapshots.
     "full": {
@@ -58,7 +59,7 @@ PRESETS: dict[str, dict] = {
         "total_updates": 20000,
         "minibatch_size": 8192,
         "pool_prob": 0.3,
-        "model": {"d_model": 160, "n_layers": 6, "n_heads": 8},
+        "model": {"d_model": 160, "n_layers": 6, "n_heads": 5},
     },
 }
 

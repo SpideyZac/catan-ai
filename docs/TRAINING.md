@@ -72,7 +72,9 @@ therefore keeps one trajectory **chain per (env, seat)**:
   endpoint vertex outputs (`a+b`, `a*b`, symmetric) plus the edge embedding; hex tokens →
   4 robber logits (no victim / relative victim 1-3); an MLP over CLS + me + trade tokens
   → all other actions (163); value MLP over CLS + me.
-* Sizes: smoke ≈ 0.15M params; warmup/full presets (d=160, 6 layers, 8 heads) ≈ 1.62M.
+* Sizes: smoke ≈ 0.15M params; warmup/full presets (d=160, 6 layers, 5 heads of width 32) ≈ 1.62M. Keep
+  `d_model / n_heads` a multiple of 8: narrower heads rule out fused attention kernels
+  (the model warns).
 * Checkpoints record `model_version` (currently 2) and refuse to load across versions.
 
 ## Setting up a training machine
@@ -141,9 +143,13 @@ are reported as "unavailable" (e.g. flash attention can't take the relation bias
 extra on Windows). With `--compile true` the trainer compiles only the learner's fixed-size
 micro-batches, and falls back to eager mode with a warning if compilation fails.
 
-Reference (RTX 5070, warmup preset, model v2, default flags): ~2,300 sps with
-`roll 2.0s / learn 12.5s` per update, so the learner dominates. If nothing else helps,
-`--epochs 2` cuts learner time by a third.
+Reference (RTX 5070, model v2, d=160, 6 layers, micro-batch 1024): learner fwd+bwd
+7,843 samples/s eager vs **15,137 samples/s with `torch.compile`** (peak 3.65 GiB), env
+~271k decisions/s. Eager training ran at ~2,300 sps (`roll 2.0s / learn 12.5s`), so the
+learner dominates; compile is therefore on by default (`--compile false` to disable).
+With 8 heads (width 20) the memory-efficient attention kernel was rejected; the presets
+now use 5 heads (width 32). If you still need more speed, `--epochs 2` cuts learner time
+by a third.
 
 ## GPU memory
 

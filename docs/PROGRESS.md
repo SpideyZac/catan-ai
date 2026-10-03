@@ -20,8 +20,12 @@ Living status document. Update it at the end of every work session (newest first
 * `--attention math` gave the same 2,300 sps as `auto` (auto already used it), so the
   attention backend is not the lever. Added `triton-windows~=3.8` (matches torch 2.14's
   Triton) to the `cu130` extra so `torch.compile` can fuse the many small ops on Windows;
-  compile now falls back to eager instead of crashing. Awaiting the owner's
-  `catan-bench` numbers with compile.
+  compile now falls back to eager instead of crashing.
+* `catan-bench` on the RTX 5070: eager 7,843 vs compiled 15,137 learner samples/s
+  (1.93×). Efficient attention was rejected because the head width was 20 (needs a
+  multiple of 8). Presets now use 5 heads (width 32) and compile defaults to on. Next:
+  owner re-runs `catan-bench` (efficient attention should now be eligible) and restarts
+  warm-up (head count changed, so the old warm-up checkpoint doesn't fit the new presets).
 
 ## 2026-10-03 — First GPU run feedback
 

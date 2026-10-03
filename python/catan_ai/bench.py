@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import time
+import warnings
 
 import numpy as np
 import torch
@@ -107,17 +108,21 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--micro-batch", type=int, default=1024)
     p.add_argument("--model.d-model", dest="d_model", type=int, default=160)
     p.add_argument("--model.n-layers", dest="n_layers", type=int, default=6)
-    p.add_argument("--model.n-heads", dest="n_heads", type=int, default=8)
+    p.add_argument("--model.n-heads", dest="n_heads", type=int, default=5)
     p.add_argument("--skip-compile", action="store_true")
     args = p.parse_args(argv)
     device = torch.device(args.device)
     cfg = ModelConfig(d_model=args.d_model, n_layers=args.n_layers, n_heads=args.n_heads)
 
+    warnings.filterwarnings(
+        "ignore",
+        message=".*(kernel not used|not compiled with|has been runtime disabled|requires last dimension|Not enough SMs).*",
+    )
     print(f"torch {torch.__version__} | device {device}", end="")
     if device.type == "cuda":
         print(f" ({torch.cuda.get_device_name(device)})", end="")
     print(
-        f" | model d={cfg.d_model} layers={cfg.n_layers} heads={cfg.n_heads} | micro-batch {args.micro_batch}"
+        f" | model d={cfg.d_model} layers={cfg.n_layers} heads={cfg.n_heads} (width {cfg.d_model // cfg.n_heads}) | micro-batch {args.micro_batch}"
     )
     print(f"env: {bench_env():,.0f} decisions/s (VecEnv 256, random legal actions)")
 

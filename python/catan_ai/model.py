@@ -28,6 +28,7 @@ was trained with.
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 
@@ -161,6 +162,14 @@ class EntityTransformer(nn.Module):
         super().__init__()
         self.cfg = cfg
         d = cfg.d_model
+        if d % cfg.n_heads:
+            raise ValueError(f"d_model ({d}) must be divisible by n_heads ({cfg.n_heads})")
+        if (d // cfg.n_heads) % 8:
+            warnings.warn(
+                f"head width {d // cfg.n_heads} (d_model/n_heads) is not a multiple of 8, so fused "
+                "attention kernels can't be used; e.g. d_model=160 with n_heads=5 gives 32",
+                stacklevel=2,
+            )
         widths = {name: width for name, (_, width) in OBS_OFFSETS.items()}
         self.embed = nn.ModuleDict({name: nn.Linear(w, d) for name, w in widths.items()})
         self.cls = nn.Parameter(torch.zeros(1, 1, d))

@@ -75,7 +75,7 @@ class TrainConfig:
     # Run `catan-bench` to find the fastest one for your GPU.
     attention: str = "auto"
     # torch.compile the learner model (needs a working Triton install).
-    compile: bool = False
+    compile: bool = True
     # League
     pool_prob: float = 0.25
     snapshot_every: int = 50

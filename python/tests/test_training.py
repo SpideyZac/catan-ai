@@ -57,6 +57,7 @@ def test_trainer_smoke_and_checkpoint(tmp_path):
         pool_prob=0.5,
         device="cpu",
         model=ModelConfig(d_model=32, n_layers=1, n_heads=2),
+        compile=False,
     )
     trainer = Trainer(cfg)
     trainer.train()
@@ -81,20 +82,20 @@ def test_neural_agent_plays_full_game(tmp_path):
 
 
 def _tiny_trainer(tmp_path, **overrides):
-    cfg = TrainConfig(
-        run_dir=str(tmp_path),
-        num_envs=8,
-        rollout_steps=16,
-        total_updates=1,
-        minibatch_size=64,
-        epochs=1,
-        eval_every=0,
-        pool_prob=0.0,
-        device="cpu",
-        model=ModelConfig(d_model=32, n_layers=1, n_heads=2),
-        **overrides,
-    )
-    return Trainer(cfg)
+    params = {
+        "run_dir": str(tmp_path),
+        "num_envs": 8,
+        "rollout_steps": 16,
+        "total_updates": 1,
+        "minibatch_size": 64,
+        "epochs": 1,
+        "eval_every": 0,
+        "pool_prob": 0.0,
+        "device": "cpu",
+        "model": ModelConfig(d_model=32, n_layers=1, n_heads=2),
+        "compile": False,
+    }
+    return Trainer(TrainConfig(**{**params, **overrides}))
 
 
 def _minibatch(trainer, size=48):
@@ -217,3 +218,13 @@ def test_compile_falls_back_to_eager_when_unavailable(tmp_path, monkeypatch):
     assert trainer.fwd is trainer.model
     stats = trainer._accumulate_gradients(_minibatch(trainer), 0.01)
     assert all(np.isfinite(v) for v in stats.values())
+
+
+def test_narrow_heads_warn_and_presets_use_fused_friendly_width():
+    from catan_ai.train import PRESETS
+
+    with pytest.warns(UserWarning, match="multiple of 8"):
+        build_model(ModelConfig(d_model=160, n_layers=1, n_heads=8))
+    for name in ("warmup", "full"):
+        m = PRESETS[name]["model"]
+        assert (m["d_model"] // m["n_heads"]) % 8 == 0, name
