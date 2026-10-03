@@ -60,16 +60,20 @@ therefore keeps one trajectory **chain per (env, seat)**:
 
 `catan_ai/model.py` — `EntityTransformer` (default) or `MLPNet` (baseline).
 
-* Tokens: CLS + 19 hex + 54 vertex + 72 edge + 4 player + trade + global = 152 tokens.
+* Tokens: CLS + 19 hex + 54 vertex + 4 player + trade + global = **80 tokens**.
+* Roads are not tokens: each edge's features are embedded and added to both endpoint
+  vertex tokens. (Model v1 had 72 edge tokens, 152 in total; dropping them cut the cost per
+  sample ~2.75× on CPU and attention ~3.6×.)
 * Per-type linear embeddings + learned positional embeddings (positions are fixed board ids).
 * Pre-norm transformer blocks using `scaled_dot_product_attention` with a learned
-  **relation bias** per head for the board graph (hex-vertex, vertex-edge, vertex-vertex,
-  edge-edge, hex-hex, self). This gives the network the board's adjacency structure.
-* Heads: vertex tokens → settlement/city logits; edge tokens → road logits; hex tokens →
+  **relation bias** per head for the board graph (hex-vertex, vertex-vertex, hex-hex,
+  self). This gives the network the board's adjacency structure.
+* Heads: vertex tokens → settlement/city logits; road logits from an MLP over the two
+  endpoint vertex outputs (`a+b`, `a*b`, symmetric) plus the edge embedding; hex tokens →
   4 robber logits (no victim / relative victim 1-3); an MLP over CLS + me + trade tokens
   → all other actions (163); value MLP over CLS + me.
-* Sizes: smoke ≈ 0.14M params; default (d=128, 4 layers) ≈ 0.75M; warmup/full presets
-  (d=160, 6 layers, 8 heads) ≈ 1.55M. Bigger models are cheap relative to env throughput.
+* Sizes: smoke ≈ 0.15M params; warmup/full presets (d=160, 6 layers, 8 heads) ≈ 1.62M.
+* Checkpoints record `model_version` (currently 2) and refuse to load across versions.
 
 ## Setting up a training machine
 
@@ -123,13 +127,13 @@ Outputs in `--run-dir`:
 
 ## GPU memory
 
-Attention with the relation bias can't use the fused flash kernel, so each layer
-materializes a `batch × heads × 152 × 152` score matrix. The learner therefore splits
+Attention with the relation bias can't use the flash kernel, so each layer may
+materialize a `batch × heads × 80 × 80` score matrix. The learner therefore splits
 every minibatch into micro-batches of `micro_batch_size` (gradient accumulation; the
 update is mathematically identical). If a micro-batch still runs out of memory it is
 halved and the minibatch retried, printing `CUDA out of memory: retrying with
 micro_batch_size=N`. Pass that `N` next time (`--micro-batch-size N`) to skip the retries.
-On a 12 GB card start with the default 512. Setting
+On a 12 GB card start with the default 1024. Setting
 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` reduces fragmentation.
 
 ## What to watch
@@ -140,7 +144,8 @@ On a 12 GB card start with the default 512. Setting
 * `game_turns`, `truncated_frac`: games should get shorter and truncation should vanish.
 * `approx_kl` (≈0.01-0.03), `clip_frac` (≈0.1-0.2), `entropy` (slow decline),
   `explained_var` (should rise toward 0.5+).
-* `sps`: decisions per second (rollout + learn). The env alone does >100k decisions/s,
+* `sps`: decisions per second (rollout + learn); the console line also shows the
+  `roll`/`learn` seconds per update so you can see which side is the bottleneck. The env alone does >100k decisions/s,
   so the GPU forward/backward is usually the bottleneck.
 
 ## Evaluating & deploying
@@ -159,7 +164,7 @@ forward pass takes a few ms), and falls back to the heuristic bot if a model err
 
 | Knob | Default | Notes |
 |---|---|---|
-| `micro_batch_size` | 512 | Samples per forward/backward; gradients are accumulated over the minibatch, so this only affects memory. Halved automatically on CUDA OOM |
+| `micro_batch_size` | 1024 | Samples per forward/backward; gradients are accumulated over the minibatch, so this only affects memory. Halved automatically on CUDA OOM |
 | `num_envs × rollout_steps` | 512 × 128 (full) | ~65k decisions per update; larger batches stabilise multi-agent PPO |
 | `gamma` | 0.997 | Per *decision*; a seat makes ~100-200 decisions per game |
 | `gae_lambda` | 0.95 | |

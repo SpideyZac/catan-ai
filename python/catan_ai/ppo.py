@@ -34,7 +34,7 @@ import torch.nn.functional as F
 
 from catan_ai import _engine
 from catan_ai.engine import ACTION_SIZE, OBS_SIZE
-from catan_ai.model import ModelConfig, build_model, masked_logits, save_checkpoint
+from catan_ai.model import ModelConfig, build_model, check_compatible, masked_logits, save_checkpoint
 
 
 @dataclass
@@ -66,7 +66,7 @@ class TrainConfig:
     epochs: int = 3
     minibatch_size: int = 4096
     # Samples per forward/backward pass; halved automatically on CUDA OOM.
-    micro_batch_size: int = 512
+    micro_batch_size: int = 1024
     target_kl: float = 0.03
     amp: bool = True
     # League
@@ -176,7 +176,14 @@ class Trainer:
         torch.manual_seed(cfg.seed)
 
         self.model = build_model(cfg.model).to(self.device)
-        self.opt = torch.optim.AdamW(self.model.parameters(), lr=cfg.lr, eps=1e-5, weight_decay=1e-4)
+        cuda = self.device.type == "cuda"
+        if cuda:
+            # TF32 for any fp32 matmuls left outside bf16 autocast.
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+        self.opt = torch.optim.AdamW(
+            self.model.parameters(), lr=cfg.lr, eps=1e-5, weight_decay=1e-4, fused=cuda
+        )
         self.update = 0
         self.total_steps = 0
         self.pool: list[dict] = []
@@ -348,7 +355,8 @@ class Trainer:
         total = tensors[0].shape[0]
         while True:
             self.opt.zero_grad(set_to_none=True)
-            sums = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "approx_kl": 0.0, "clip_frac": 0.0}
+            # Accumulated on-device; a single host sync at the end of the minibatch.
+            sums = torch.zeros(5, device=self.device)
             try:
                 for lo in range(0, total, self.micro_batch_size):
                     o, m, act, old_logp, old_v, a, ret = (t[lo : lo + self.micro_batch_size] for t in tensors)
@@ -373,12 +381,17 @@ class Trainer:
                     w = o.shape[0] / total
                     (loss * w).backward()
                     with torch.no_grad():
-                        sums["policy_loss"] += pg.item() * w
-                        sums["value_loss"] += v_loss.item() * w
-                        sums["entropy"] += entropy.item() * w
-                        sums["approx_kl"] += ((ratio - 1) - (logp - old_logp)).mean().item() * w
-                        sums["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean().item() * w
-                return sums
+                        sums += w * torch.stack(
+                            [
+                                pg.detach(),
+                                v_loss.detach(),
+                                entropy.detach(),
+                                ((ratio - 1) - (logp - old_logp)).mean(),
+                                ((ratio - 1).abs() > cfg.clip).float().mean(),
+                            ]
+                        )
+                keys = ("policy_loss", "value_loss", "entropy", "approx_kl", "clip_frac")
+                return dict(zip(keys, sums.tolist(), strict=True))
             except torch.OutOfMemoryError:
                 if self.micro_batch_size <= 1:
                     raise
@@ -495,6 +508,7 @@ class Trainer:
 
     def _load(self, path: str) -> None:
         payload = torch.load(path, map_location=self.device, weights_only=False)
+        check_compatible(payload)
         self.model.load_state_dict(payload["state_dict"])
         if "optimizer" in payload:
             self.opt.load_state_dict(payload["optimizer"])
@@ -552,7 +566,8 @@ class Trainer:
                 }
                 self.log(metrics)
                 print(
-                    f"upd {self.update:6d} | steps {self.total_steps:11,d} | sps {metrics['sps']:7.0f} | "
+                    f"upd {self.update:6d} | steps {self.total_steps:11,d} | sps {metrics['sps']:7.0f} "
+                    f"(roll {metrics['rollout_s']:.1f}s learn {metrics['learn_s']:.1f}s) | "
                     f"pl {stats['policy_loss']:+.3f} vl {stats['value_loss']:.3f} ent {stats['entropy']:.2f} "
                     f"kl {stats['approx_kl']:.4f} ev {stats['explained_var']:+.2f} | "
                     f"turns {ep.get('game_turns', float('nan')):.0f} trunc {ep.get('truncated_frac', float('nan')):.2f}"

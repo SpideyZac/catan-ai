@@ -2,6 +2,19 @@
 
 Living status document. Update it at the end of every work session (newest first).
 
+## 2026-10-03 — Training throughput (model v2)
+
+* Owner measured 931 sps on an RTX 5070 with the warmup preset (1.55M-param model):
+  ~15 h for warmup, ~16 days for the full preset. Too slow.
+* Model v2: removed the 72 edge tokens (152 → 80 tokens). Edge features are folded into
+  endpoint vertex tokens and road logits come from endpoint pairs. Cost per sample on CPU
+  12.7 → 4.6 ms (fwd+bwd, batch 256); attention ~3.6× cheaper. **Old checkpoints are
+  incompatible** (`model_version` check gives a clear error) - restart training.
+* Learner: on-device loss statistics (one host sync per minibatch instead of five per
+  micro-batch), fused AdamW and TF32 on CUDA, default micro-batch 1024. Console shows
+  rollout vs learn seconds.
+* Not yet measured on the GPU; ask the owner for the new sps and the roll/learn split.
+
 ## 2026-10-03 — First GPU run feedback
 
 * The owner's first `warmup` run (12 GB GPU) crashed with CUDA OOM in `learn()`: a

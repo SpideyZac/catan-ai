@@ -142,3 +142,36 @@ def test_out_of_memory_halves_micro_batch(tmp_path, monkeypatch):
     monkeypatch.setattr(trainer.model, "forward", limited)
     trainer._accumulate_gradients(tensors, 0.01)
     assert trainer.micro_batch_size == 8
+
+
+def test_road_logits_are_local_to_their_edge():
+    from catan_ai.engine import ACTION_OFFSETS, OBS_OFFSETS
+    from catan_ai.model import EntityTransformer, edge_endpoints
+
+    torch.manual_seed(0)
+    model = EntityTransformer(ModelConfig(d_model=32, n_layers=0, n_heads=2)).eval()
+    obs = torch.from_numpy(CatanGame(seed=1).observe(0)).unsqueeze(0)
+    base, _ = model(obs)
+    # With no attention layers, changing edge 10's features may only move road logits of
+    # edges sharing an endpoint with it (through the vertex aggregation) - never far ones.
+    off, width = OBS_OFFSETS["edge"]
+    bumped = obs.clone()
+    bumped[0, off + 10 * width : off + 11 * width] += 1.0
+    out, _ = model(bumped)
+    road = slice(ACTION_OFFSETS["road"], ACTION_OFFSETS["road"] + 72)
+    changed = set(torch.nonzero((out[0, road] - base[0, road]).abs() > 1e-6).flatten().tolist())
+    ends = edge_endpoints()
+    near = {e for e in range(72) if set(ends[e]) & set(ends[10])}
+    assert 10 in changed
+    assert changed <= near
+
+
+def test_old_model_checkpoints_are_rejected(tmp_path):
+    cfg = ModelConfig(d_model=32, n_layers=1, n_heads=2)
+    path = tmp_path / "old.pt"
+    save_checkpoint(str(path), build_model(cfg), cfg)
+    payload = torch.load(path, weights_only=False)
+    payload["model_version"] = 1
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="model v1"):
+        load_checkpoint(str(path))
