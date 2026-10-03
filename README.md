@@ -32,7 +32,8 @@ uv run catan-server                      # open http://localhost:8000
 ```
 
 Choose **Play vs AI**, **Pass & Play**, **Play online** (share the invite link or the
-5-letter table code) or **Watch the AI**. In the lobby the host can switch any seat between
+5-letter table code) or **Watch the AI**. Play vs AI and Watch the AI first ask for the
+number of players, points to win, trading limit, AI speed/level and board. In the lobby the host can switch any seat between
 a human and an AI level, and change the table rules.
 
 ## Training the AI

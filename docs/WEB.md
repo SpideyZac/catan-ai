@@ -21,9 +21,11 @@ npm run typecheck
 | `src/lib/api.ts` | REST helpers, `useRoom` hook: WebSocket with hello/token, exponential-backoff reconnect, pings, typed senders |
 | `src/lib/types.ts` | Protocol & engine JSON types, costs, hand helpers |
 | `src/lib/sound.ts` | Procedural sound effects (Web Audio), event → sound mapping, persisted mute toggle |
+| `src/lib/music.ts` | Procedural background music (lobby air, in-game jig), `useMusic` track selection, persisted on/off |
 | `src/lib/format.ts` | Labels (Lumber/Brick/Wool/Grain/Ore), event descriptions, phase hints |
-| `src/components/Home.tsx` | Landing page: Play vs AI, Pass & Play, Play online, Watch the AI, join by code |
-| `src/components/Lobby.tsx` | Seats (human/AI level, claim, add local player), table rules, invite link, chat |
+| `src/components/Home.tsx` | Landing page: Play vs AI, Pass & Play, Play online, Watch the AI, join by code; rules/AI-level dialog for the instant-start modes |
+| `src/components/Lobby.tsx` | Seats (human/AI level, claim, add local player), table rules (`RulesFields`, shared with Home), invite link, chat |
+| `src/components/AudioToggles.tsx` | Music and sound-effect toggle buttons (home, lobby, game top bar) |
 | `src/components/GameScreen.tsx` | Game layout, perspective logic, build modes, board targets, toasts, log, chat, modals |
 | `src/components/Board.tsx` | SVG board: frame, sea, beach, harbors, tiles, tokens, roads, buildings, robber, click targets |
 | `src/components/art.tsx` | Terrain illustrations, resource/dev icons, settlement/city/robber shapes, number tokens, palettes |
@@ -61,6 +63,29 @@ The AudioContext is created lazily and resumed on the first click/key press (aut
 policy). The speaker button in the top bar mutes; the choice is stored in `localStorage`
 (`catan.muted`).
 
+### Music
+
+`src/lib/music.ts` plays two procedural folk tracks through the same AudioContext:
+**Harbour at Dawn** (D Dorian, slow 6/8: lute arpeggios, bowed pad, wooden flute) on the
+home page and lobby, and **Settlers' Jig** (G Mixolydian, brisk 6/8: bass + strummed lute,
+bodhrán, tin whistle, with a drum-less breather section) during games. Notes are scheduled
+~0.35 s ahead by a look-ahead timer (1.6 s in background tabs, whose timers are throttled),
+with light timing/velocity humanisation and occasional grace-note "cuts". Components request
+a track with `useMusic("lobby" | "game")`; releasing it waits 1.2 s so screen changes
+(home → connecting → lobby) don't restart the tune, and switching tracks crossfades. Music
+peaks at roughly half the level of the effects. The 🎵 button toggles it independently of the
+effects mute; the choice is stored in `localStorage` (`catan.music`, default on).
+
+## Quick start setup
+
+**Play vs AI** and **Watch the AI** open a dialog on the home page with the table rules
+(players 2–4, points to win, trade offers per turn, AI speed, beginner board) and the AI
+level for all computer seats. The choice is remembered in `localStorage`
+(`catan.quickSetup`) and handed to the room through `sessionStorage` (`catan.quick`, JSON
+`{mode, setup}`); once connected as host, `App` sends one `configure` with the settings and
+the seat list (the server applies settings first, so the list matches the new size) and
+starts the game. Pass & Play and Play online go to the lobby, where the same rules are edited.
+
 ## Styling
 
 Theme tokens live at the top of `styles.css` (wood, parchment, ink, gold). Fonts: Cinzel
@@ -70,7 +95,8 @@ panel, dock below) collapsing to a single column under 860px with a sticky dock.
 ## UI smoke test
 
 `npm run ui-smoke` (with `uv run catan-server` running on :8000) drives headless Chrome via
-`playwright-core`: home → Play vs AI → setup placements → roll (handling a 7) → compose and
+`playwright-core`: home → Play vs AI dialog (3 players, 8 points) → setup placements → roll (handling a 7) → compose and
 send a trade offer; then Pass & Play lobby → add a local player → set AI seats → start →
-pass-device curtain. It fails on any page error. Options: `BASE_URL`, `CHROME_PATH`
+pass-device curtain; finally it checks that lobby music schedules notes and stops when
+turned off. It fails on any page error. Options: `BASE_URL`, `CHROME_PATH`
 (defaults to the standard Windows install), `-- --out <dir>` for screenshots.

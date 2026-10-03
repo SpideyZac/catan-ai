@@ -2,6 +2,18 @@
 
 Living status document. Update it at the end of every work session (newest first).
 
+## 2026-10-03 — Background music and quick-start rules
+
+* `web/src/lib/music.ts`: procedural folk music (no asset files) - a slow D Dorian harbour
+  air for home/lobby and a G Mixolydian 6/8 jig with bodhrán for games, crossfading between
+  screens. Separate 🎵 toggle (home, lobby, game top bar), persisted as `catan.music`.
+  Levels measured in headless Chrome: music peaks ~0.09-0.12 vs effects ~0.24.
+* Play vs AI / Watch the AI now open a setup dialog (players 2-4, points to win, trade
+  offers, AI speed, beginner board, AI level), remembered in `localStorage`. The lobby's
+  rules form is now the shared `RulesFields` component.
+* `npm run ui-smoke` drives the dialog (3-player game) and checks music starts/stops; a
+  one-off check confirmed the chosen settings and bot level reach the server for both modes.
+
 ## 2026-10-03 — UI sound effects
 
 * `web/src/lib/sound.ts`: procedural Web Audio effects (no asset files) for dice, 7s,
