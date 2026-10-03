@@ -20,6 +20,7 @@ npm run typecheck
 | `src/App.tsx` | Tiny router (`/` home, `/room/CODE` table), name gate (`?name=` supported), quick-start handling |
 | `src/lib/api.ts` | REST helpers, `useRoom` hook: WebSocket with hello/token, exponential-backoff reconnect, pings, typed senders |
 | `src/lib/types.ts` | Protocol & engine JSON types, costs, hand helpers |
+| `src/lib/sound.ts` | Procedural sound effects (Web Audio), event → sound mapping, persisted mute toggle |
 | `src/lib/format.ts` | Labels (Lumber/Brick/Wool/Grain/Ore), event descriptions, phase hints |
 | `src/components/Home.tsx` | Landing page: Play vs AI, Pass & Play, Play online, Watch the AI, join by code |
 | `src/components/Lobby.tsx` | Seats (human/AI level, claim, add local player), table rules, invite link, chat |
@@ -46,6 +47,19 @@ The board derives click targets from them:
 * setup / road building: vertices or edges are highlighted automatically;
 * main phase: pressing Road / Settlement / City enters a build mode;
 * robber: legal hexes are highlighted; if several opponents can be robbed, a victim picker opens.
+
+## Sound
+
+`src/lib/sound.ts` synthesizes every effect with the Web Audio API (oscillators + filtered
+noise), so there are no audio files. `GameScreen` maps fresh log events to effects
+(`sfxFor`): dice rattle (plus a low rumble on a 7), knocks for roads/settlements/cities,
+card flip, robber growl, steal whoosh (a sadder variant when you are the victim), trade
+offer bell, coin chime on any completed trade, fanfare for Longest Road / Largest Army and
+win/lose stings. A chime plays when the turn passes to one of your seats and a pop on
+incoming chat. Effects from one state update are deduplicated, staggered and capped at four.
+The AudioContext is created lazily and resumed on the first click/key press (autoplay
+policy). The speaker button in the top bar mutes; the choice is stored in `localStorage`
+(`catan.muted`).
 
 ## Styling
 

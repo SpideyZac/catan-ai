@@ -35,7 +35,8 @@ Status legend: ✅ done · 🔜 next · 💡 idea
 
 - 💡 Run `npm run ui-smoke` in CI (start server + headless Chromium); extend it through game over
 - 💡 Turn timers / AFK handling (host can already replace an offline player with the AI)
-- 💡 Sound effects, resource-flow animations from tiles to player panels, card hover zoom
+- ✅ Sound effects (procedural Web Audio, mute toggle)
+- 💡 Resource-flow animations from tiles to player panels, card hover zoom
 - 💡 Accessibility: keyboard navigation of board targets, colour-blind piece patterns, ARIA live log
 - 💡 Game replays from the event log (scrubbable), shareable links, end-of-game stats charts
 - 💡 Hints for beginners (spot ratings from the heuristic / value network)

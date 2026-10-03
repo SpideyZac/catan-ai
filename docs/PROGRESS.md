@@ -2,6 +2,15 @@
 
 Living status document. Update it at the end of every work session (newest first).
 
+## 2026-10-03 — UI sound effects
+
+* `web/src/lib/sound.ts`: procedural Web Audio effects (no asset files) for dice, 7s,
+  your production, builds, dev cards, robber, steals, trade offers/deals/no-deal, Longest
+  Road / Largest Army, win/lose, your-turn chime and incoming chat. Per-update batches are
+  deduplicated and capped; mute toggle in the top bar persists in `localStorage`.
+* Verified with `npm run ui-smoke` and a headless check that effects fire during setup and
+  stop when muted. See `docs/WEB.md` → Sound.
+
 ## 2026-10-03 — Warm-up → self-play handoff fix
 
 * Diagnosed the regression after resuming the warm-up into the full preset (heuristic win
