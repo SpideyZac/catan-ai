@@ -67,7 +67,9 @@ PRESETS: dict[str, dict] = {
 def _field_type(f: dataclasses.Field) -> typing.Any:
     t = f.type
     if isinstance(t, str):
-        t = {"int": int, "float": float, "str": str, "bool": bool, "str | None": str}.get(t, str)
+        t = {"int": int, "float": float, "str": str, "bool": bool, "str | None": str, "int | None": int}.get(
+            t, str
+        )
     return t
 
 

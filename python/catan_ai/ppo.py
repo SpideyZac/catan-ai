@@ -56,6 +56,10 @@ class TrainConfig:
     bot_seats: int = 0
     # Optimization
     total_updates: int = 20_000
+    # Update at which the LR/entropy cosine starts (it runs from here to total_updates).
+    # None = automatic: 0 for a fresh run, kept when resuming the same run, and the
+    # checkpoint's update when resuming with a different schedule (e.g. warm-up -> full).
+    schedule_start_update: int | None = None
     lr: float = 3e-4
     lr_final_frac: float = 0.1
     gamma: float = 0.997
@@ -196,6 +200,8 @@ class Trainer:
         self.pool: list[dict] = []
         if resume:
             self._load(resume)
+        if cfg.schedule_start_update is None:
+            cfg.schedule_start_update = 0
 
         self.env = _engine.VecEnv(
             cfg.num_envs,
@@ -374,7 +380,8 @@ class Trainer:
 
     # ------------------------------------------------------------------ update
     def _schedule(self) -> tuple[float, float]:
-        frac = min(1.0, self.update / max(1, self.cfg.total_updates))
+        start = self.cfg.schedule_start_update or 0
+        frac = min(1.0, max(0, self.update - start) / max(1, self.cfg.total_updates - start))
         cos = 0.5 * (1 + math.cos(math.pi * frac))
         lr = self.cfg.lr * (self.cfg.lr_final_frac + (1 - self.cfg.lr_final_frac) * cos)
         ent = self.cfg.entropy_final_coef + (self.cfg.entropy_coef - self.cfg.entropy_final_coef) * cos
@@ -552,6 +559,12 @@ class Trainer:
         self.update = int(payload.get("update", 0))
         self.total_steps = int(payload.get("total_steps", 0))
         self.pool = list(payload.get("pool", []))
+        if self.cfg.schedule_start_update is None:
+            self.cfg.schedule_start_update = resumed_schedule_start(
+                payload.get("train_config", {}), self.cfg, self.update
+            )
+            if self.cfg.schedule_start_update == self.update and self.update > 0:
+                print(f"schedule settings changed: LR/entropy cosine restarts at update {self.update}")
 
     def log(self, metrics: dict) -> None:
         metrics = {"update": self.update, "steps": self.total_steps, **metrics}
@@ -622,6 +635,22 @@ class Trainer:
         if self.writer:
             self.writer.close()
         self.metrics_file.close()
+
+
+SCHEDULE_KEYS = ("total_updates", "lr", "lr_final_frac", "entropy_coef", "entropy_final_coef")
+
+
+def resumed_schedule_start(prev: dict, cfg: TrainConfig, update: int) -> int:
+    """Where the cosine schedules start when resuming from a checkpoint at ``update``.
+
+    Resuming the same run keeps its schedule. Resuming with different schedule settings
+    (typically warm-up -> full) restarts the cosine at the checkpoint's update, so the new
+    run's ``lr``/``entropy_coef`` are its starting values instead of whatever point of the
+    new curve the old update counter happens to land on.
+    """
+    if prev and all(prev.get(k) == getattr(cfg, k) for k in SCHEDULE_KEYS):
+        return int(prev.get("schedule_start_update") or 0)
+    return update
 
 
 def clone_config(cfg: TrainConfig, **overrides) -> TrainConfig:

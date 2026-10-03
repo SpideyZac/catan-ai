@@ -246,3 +246,32 @@ def test_attention_bias_is_kernel_friendly(monkeypatch):
     # Last dim stride 1 (required by fused CUDA kernels), batch broadcast with stride 0.
     assert seen["stride"][-1] == 1
     assert seen["stride"][0] == 0
+
+
+def test_resume_with_new_schedule_restarts_cosine(tmp_path):
+    # Warm-up style run that ends with a fully decayed schedule.
+    first = _tiny_trainer(
+        tmp_path / "a", total_updates=2, lr=1e-3, entropy_coef=0.02, entropy_final_coef=0.001
+    )
+    first.train()
+    assert first._schedule() == pytest.approx((1e-3 * first.cfg.lr_final_frac, 0.001))
+    ckpt = str(tmp_path / "a" / "final.pt")
+
+    # Continuing with a longer, different schedule starts from its own initial values.
+    params = {**first.cfg.to_dict(), "run_dir": str(tmp_path / "b"), "total_updates": 50}
+    params.update(lr=2e-4, entropy_coef=0.004, schedule_start_update=None)
+    second = Trainer(TrainConfig.from_dict(params), resume=ckpt)
+    assert second.update == 2 and second.cfg.schedule_start_update == 2
+    assert second._schedule() == pytest.approx((2e-4, 0.004))
+    second.update = 50
+    assert second._schedule() == pytest.approx((2e-4 * second.cfg.lr_final_frac, 0.001))
+
+    # Resuming the same run (same schedule settings) keeps its schedule start.
+    second.update = 26
+    second.save("latest.pt")
+    third = Trainer(
+        TrainConfig.from_dict({**params, "schedule_start_update": None}),
+        resume=str(tmp_path / "b" / "latest.pt"),
+    )
+    assert third.cfg.schedule_start_update == 2
+    assert third._schedule() == pytest.approx(second._schedule())

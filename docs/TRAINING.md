@@ -113,8 +113,15 @@ uv run catan-train --preset full --num-envs 1024 --minibatch-size 16384 --model.
 ```
 
 Resuming restores the model, optimizer, update counter and league pool. The `warmup` and
-`full` presets share the same architecture so step 2 can start from the warm-up weights
-(the update counter carries over, so the LR schedule continues from where warm-up ended).
+`full` presets share the same architecture so step 2 can start from the warm-up weights.
+
+The LR and entropy cosines run from `schedule_start_update` to `total_updates` (absolute
+update numbers). Left unset, it is 0 for a fresh run, kept when resuming the same run, and
+set to the checkpoint's update when the schedule settings (`total_updates`, `lr`,
+`lr_final_frac`, `entropy_coef`, `entropy_final_coef`) differ from the checkpoint's. So a
+continuation starts at *its own* `lr`/`entropy_coef`: pick them deliberately. (Before this,
+a warm-up ending at update 1500 resumed under `total_updates=20000` jumped from LR 3e-5 /
+entropy 0.002 straight to ~3e-4 / ~0.01, which undid most of the warm-up.)
 `--bot-kind ""` clears the preset's scripted opponents.
 
 Outputs in `--run-dir`:
@@ -196,7 +203,7 @@ forward pass takes a few ms), and falls back to the heuristic bot if a model err
 | `num_envs × rollout_steps` | 512 × 128 (full) | ~65k decisions per update; larger batches stabilise multi-agent PPO |
 | `gamma` | 0.997 | Per *decision*; a seat makes ~100-200 decisions per game |
 | `gae_lambda` | 0.95 | |
-| `lr` | 3e-4 → 3e-5 cosine | |
+| `lr` | 3e-4 → 3e-5 cosine | Cosine over `schedule_start_update..total_updates` |
 | `entropy_coef` | 0.01 → 0.002 | The action space is large; keep some exploration for trading |
 | `max_trade_offers_per_turn` | 3 | Caps proposal spam; the web app allows up to 10 |
 | `pool_prob` | 0.3 | Fraction of games vs frozen snapshots |
