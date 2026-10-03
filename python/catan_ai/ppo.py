@@ -47,13 +47,19 @@ class TrainConfig:
     # Environment
     num_envs: int = 256
     rollout_steps: int = 128
+    # Player count of training games (unless player_counts is set) and of the main eval.
     num_players: int = 4
+    # Optional per-game mix of player counts, e.g. [2, 3, 4] (uniform; repeat to weight).
+    # Each extra count also gets its own eval (eval/heuristic_win_rate_<n>p).
+    player_counts: list[int] = field(default_factory=list)
     max_turns: int = 300
     max_trade_offers_per_turn: int = 3
     vp_reward_scale: float = 0.02
     zero_sum: bool = True
     bot_kind: str | None = None
-    bot_seats: int = 0
+    # Scripted seats per game; fractional = probability of one more (0.5 = a bot in half the
+    # games), so the learner cannot spend its whole budget exploiting a fixed bot.
+    bot_seats: float = 0
     # Optimization
     total_updates: int = 20_000
     # Update at which the LR/entropy cosine starts (it runs from here to total_updates).
@@ -210,12 +216,14 @@ class Trainer:
             max_trade_offers_per_turn=cfg.max_trade_offers_per_turn,
             max_turns=cfg.max_turns,
             bot_kind=cfg.bot_kind or None,
-            num_bot_seats=cfg.bot_seats if cfg.bot_kind else 0,
+            num_bot_seats=float(cfg.bot_seats) if cfg.bot_kind else 0.0,
             vp_reward_scale=cfg.vp_reward_scale,
             zero_sum=cfg.zero_sum,
+            player_counts=list(cfg.player_counts) or None,
         )
         self.n = cfg.num_envs
-        self.p = cfg.num_players
+        # Widest game in the mix; smaller games just leave the extra seats unused.
+        self.p = self.env.num_players
         self.buffer = RolloutBuffer(cfg.num_envs * cfg.rollout_steps, self.device)
         # Latest transition per (env, seat) chain, -1 if none in this rollout.
         self.last_idx = np.full((self.n, 4), -1, dtype=np.int64)
@@ -496,15 +504,18 @@ class Trainer:
 
     # ------------------------------------------------------------------ eval
     @torch.no_grad()
-    def evaluate(self, games: int, bot_kind: str = "heuristic", greedy: bool = True) -> dict:
+    def evaluate(
+        self, games: int, bot_kind: str = "heuristic", greedy: bool = True, num_players: int | None = None
+    ) -> dict:
         """Win rate of the current policy (one seat) against scripted bots."""
+        players = num_players or self.cfg.num_players
         env = _engine.VecEnv(
             min(games, 128),
             seed=10_000 + self.update,
-            num_players=self.p,
+            num_players=players,
             max_turns=self.cfg.max_turns,
             bot_kind=bot_kind,
-            num_bot_seats=self.p - 1,
+            num_bot_seats=players - 1,
         )
         self.model.eval()
         wins = finished = truncated = 0
@@ -625,6 +636,9 @@ class Trainer:
 
             if cfg.eval_every and self.update % cfg.eval_every == 0:
                 ev = self.evaluate(cfg.eval_games)
+                for n in sorted(set(cfg.player_counts) - {cfg.num_players}):
+                    extra = self.evaluate(cfg.eval_games, num_players=n)
+                    ev.update({f"{k}_{n}p": v for k, v in extra.items()})
                 self.log(ev)
                 print("  eval:", {k: round(v, 3) for k, v in ev.items()})
             if self.update % cfg.checkpoint_every == 0 or self.update == cfg.total_updates:

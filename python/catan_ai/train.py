@@ -73,6 +73,10 @@ def _field_type(f: dataclasses.Field) -> typing.Any:
     return t
 
 
+def _int_list(s: str) -> list[int]:
+    return [int(x) for x in s.split(",") if x.strip()]
+
+
 def _str2bool(s: str) -> bool:
     if s.lower() in ("1", "true", "yes", "y", "on"):
         return True
@@ -88,6 +92,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--resume", help="checkpoint to resume from")
     for f in dataclasses.fields(TrainConfig):
         if f.name == "model":
+            continue
+        if f.name == "player_counts":
+            p.add_argument("--player-counts", dest=f.name, type=_int_list, help="e.g. 2,3,4")
             continue
         t = _field_type(f)
         p.add_argument(

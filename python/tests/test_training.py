@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -275,3 +277,31 @@ def test_resume_with_new_schedule_restarts_cosine(tmp_path):
     )
     assert third.cfg.schedule_start_update == 2
     assert third._schedule() == pytest.approx(second._schedule())
+
+
+def test_trainer_mixed_player_counts_and_fractional_bots(tmp_path):
+    trainer = _tiny_trainer(
+        tmp_path,
+        total_updates=2,
+        player_counts=[2, 3, 4],
+        bot_kind="heuristic",
+        bot_seats=0.5,
+        pool_prob=0.5,
+        snapshot_every=1,
+        eval_every=2,
+        eval_games=4,
+    )
+    assert trainer.p == 4
+    trainer.train()
+    rows = [json.loads(line) for line in (tmp_path / "metrics.jsonl").read_text().splitlines()]
+    ev = next(r for r in rows if "eval/heuristic_win_rate" in r)
+    assert {"eval/heuristic_win_rate_2p", "eval/heuristic_win_rate_3p"} <= ev.keys()
+    assert "eval/heuristic_win_rate_4p" not in ev
+
+
+def test_cli_parses_player_counts_and_fractional_bot_seats():
+    from catan_ai.train import build_parser, config_from_args
+
+    args = build_parser().parse_args(["--preset", "smoke", "--player-counts", "3,4", "--bot-seats", "0.3"])
+    cfg = config_from_args(args)
+    assert cfg.player_counts == [3, 4] and cfg.bot_seats == pytest.approx(0.3)

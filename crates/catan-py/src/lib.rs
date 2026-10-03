@@ -359,9 +359,14 @@ struct StepOut {
 }
 
 struct EnvSettings {
-    config: GameConfig,
+    /// One config per entry of `player_counts`; each new game picks one uniformly.
+    configs: Vec<GameConfig>,
+    /// Largest player count (width of `observe_all_seats`).
+    max_players: usize,
     bot_kind: Option<String>,
-    num_bot_seats: usize,
+    /// Expected scripted seats per game: `floor` always, plus one more with probability
+    /// equal to the fractional part. Capped so at least one seat stays policy-controlled.
+    num_bot_seats: f64,
     vp_reward_scale: f32,
     zero_sum: bool,
 }
@@ -369,7 +374,7 @@ struct EnvSettings {
 impl Slot {
     fn new(settings: &EnvSettings, seed: u64) -> Slot {
         let mut slot = Slot {
-            state: GameState::new(settings.config.clone(), seed),
+            state: GameState::new(settings.configs[0].clone(), seed),
             bots: Vec::new(),
             prev_vp: [0; MAX_PLAYERS],
             scratch: Vec::with_capacity(256),
@@ -381,11 +386,19 @@ impl Slot {
 
     fn reset(&mut self, settings: &EnvSettings) {
         let seed = self.rng.next_u64();
-        self.state = GameState::new(settings.config.clone(), seed);
-        let n = settings.config.num_players as usize;
+        let config = match settings.configs.len() {
+            1 => &settings.configs[0],
+            k => &settings.configs[self.rng.below(k as u32) as usize],
+        };
+        self.state = GameState::new(config.clone(), seed);
+        let n = config.num_players as usize;
         let mut seats: Vec<usize> = (0..n).collect();
         self.rng.shuffle(&mut seats);
-        let bot_seats = &seats[..settings.num_bot_seats.min(n.saturating_sub(1))];
+        let whole = settings.num_bot_seats.floor();
+        let frac = settings.num_bot_seats - whole;
+        let extra = frac > 0.0 && self.rng.next_f64() < frac;
+        let num_bots = whole as usize + extra as usize;
+        let bot_seats = &seats[..num_bots.min(n.saturating_sub(1))];
         self.bots = (0..n)
             .map(|s| match &settings.bot_kind {
                 Some(kind) if bot_seats.contains(&s) => ScriptedBot::new(kind, self.rng.next_u64()).ok(),
@@ -472,6 +485,11 @@ impl Slot {
 /// `num_bot_seats`), which act inside `step` without returning to Python. Finished
 /// games are reset automatically.
 ///
+/// `num_bot_seats` may be fractional: 0.3 puts one bot in 30% of games, 1.5 puts one bot
+/// in every game and a second in half of them. `player_counts` (e.g. `[2, 3, 4]`) makes
+/// each new game draw its player count uniformly from the list instead of using
+/// `num_players`; repeat an entry to weight it.
+///
 /// Rewards are per *seat* (shape `[num_envs, 4]`) because a step may change the
 /// outcome for seats other than the one that acted (e.g. the final move of the game).
 #[pyclass(module = "catan_ai._engine")]
@@ -491,10 +509,11 @@ impl VecEnv {
         max_trade_offers_per_turn = 3,
         max_turns = 300,
         bot_kind = None,
-        num_bot_seats = 0,
+        num_bot_seats = 0.0,
         vp_reward_scale = 0.0,
         zero_sum = true,
         beginner_board = false,
+        player_counts = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -505,10 +524,11 @@ impl VecEnv {
         max_trade_offers_per_turn: u8,
         max_turns: u32,
         bot_kind: Option<String>,
-        num_bot_seats: usize,
+        num_bot_seats: f64,
         vp_reward_scale: f32,
         zero_sum: bool,
         beginner_board: bool,
+        player_counts: Option<Vec<u8>>,
     ) -> PyResult<Self> {
         if num_envs == 0 {
             return Err(PyValueError::new_err("num_envs must be positive"));
@@ -516,21 +536,35 @@ impl VecEnv {
         if let Some(k) = &bot_kind {
             ScriptedBot::new(k, 0)?;
         }
-        if num_bot_seats >= num_players as usize {
+        let counts = player_counts.unwrap_or_else(|| vec![num_players]);
+        if counts.is_empty() {
+            return Err(PyValueError::new_err("player_counts must not be empty"));
+        }
+        let max_players = *counts.iter().max().unwrap() as usize;
+        if !num_bot_seats.is_finite() || num_bot_seats < 0.0 {
+            return Err(PyValueError::new_err("num_bot_seats must be >= 0"));
+        }
+        if num_bot_seats.ceil() >= max_players as f64 {
             return Err(PyValueError::new_err("at least one seat must be policy-controlled"));
         }
-        let config = make_config(
-            num_players,
-            vp_to_win,
-            max_trade_offers_per_turn,
-            max_turns,
-            beginner_board,
-            false,
-            7,
-            6,
-        )?;
+        let configs = counts
+            .iter()
+            .map(|&n| {
+                make_config(
+                    n,
+                    vp_to_win,
+                    max_trade_offers_per_turn,
+                    max_turns,
+                    beginner_board,
+                    false,
+                    7,
+                    6,
+                )
+            })
+            .collect::<PyResult<Vec<_>>>()?;
         let settings = EnvSettings {
-            config,
+            configs,
+            max_players,
             bot_kind,
             num_bot_seats,
             vp_reward_scale,
@@ -547,9 +581,16 @@ impl VecEnv {
         self.slots.len()
     }
 
+    /// Largest player count of any game (seat axis of `observe_all_seats`).
     #[getter]
     fn num_players(&self) -> u8 {
-        self.settings.config.num_players
+        self.settings.max_players as u8
+    }
+
+    /// Player count of each env's current game (`i64[N]`); changes on reset.
+    fn game_players<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<i64>> {
+        let out: Vec<i64> = self.slots.iter().map(|s| s.state.n() as i64).collect();
+        Array1::from_vec(out).into_pyarray(py)
     }
 
     /// Reset every game.
@@ -653,18 +694,19 @@ impl VecEnv {
         ))
     }
 
-    /// Observation of every env from every seat's perspective (`f32[N x P x OBS_SIZE]`).
+    /// Observation of every env from every seat's perspective (`f32[N x P x OBS_SIZE]`,
+    /// `P` = largest player count; rows of seats absent from a smaller game are zero).
     /// Used to bootstrap value estimates for seats that are not currently acting.
     fn observe_all_seats<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray3<f32>>> {
         let n = self.slots.len();
-        let p = self.settings.config.num_players as usize;
+        let p = self.settings.max_players;
         let slots = &self.slots;
         let obs = py.detach(|| {
             let mut obs = vec![0f32; n * p * OBS_SIZE];
             obs.par_chunks_mut(p * OBS_SIZE)
                 .zip(slots.par_iter())
                 .for_each(|(chunk, slot)| {
-                    for (seat, o) in chunk.chunks_mut(OBS_SIZE).enumerate() {
+                    for (seat, o) in chunk.chunks_mut(OBS_SIZE).enumerate().take(slot.state.n()) {
                         observe(&slot.state, seat as u8, o);
                     }
                 });

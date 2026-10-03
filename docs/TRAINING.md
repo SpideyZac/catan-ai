@@ -23,7 +23,14 @@ only runs smoke tests.
   LR schedule, AdamW, bf16 autocast on CUDA, KL early stopping.
 * **Opponents**: pure self-play by default, plus a *league* of frozen past snapshots
   (`pool_prob` of games put one learner seat against snapshot opponents), plus optional
-  scripted Rust bots (`bot_kind`, `bot_seats`) for curriculum warm-up.
+  scripted Rust bots (`bot_kind`, `bot_seats`) for curriculum warm-up. `bot_seats` may be
+  fractional: `0.5` puts one bot in half the games, `1.5` one bot always plus a second in
+  half the games. Seats are reshuffled every game.
+* **Player counts**: `num_players` (default 4) fixes the game size; `player_counts`
+  (`--player-counts 2,3,4`) instead draws each game's size uniformly from the list (repeat
+  an entry to weight it). The observation has a player-count one-hot and per-seat
+  "present" flags, so one model covers 2-4 players, but it only plays well at sizes it was
+  trained on. Each extra size is evaluated separately (`eval/heuristic_win_rate_<n>p`).
 * **Trading**: fully inside the action space. The agent proposes from 120 trade templates,
   answers offers (accept / reject / counter with a template), and picks a partner when
   several accept. Because the observation contains the live offer and every response,

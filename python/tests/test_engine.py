@@ -120,6 +120,47 @@ def test_vecenv_shapes_and_step():
     assert all_obs.shape == (8, 4, OBS_SIZE)
 
 
+def _play_random(env, steps, rng):
+    for _ in range(steps):
+        _, mask, _ = env.observe()
+        env.step((rng.random(mask.shape) * mask).argmax(1))
+
+
+def test_vecenv_fractional_bot_seats():
+    env = _engine.VecEnv(400, seed=2, bot_kind="random", num_bot_seats=1.25)
+    bots = (~env.policy_seats()).sum(1)
+    assert set(bots.tolist()) == {1, 2}
+    assert 0.15 < (bots == 2).mean() < 0.35
+    env = _engine.VecEnv(400, seed=2, bot_kind="random", num_bot_seats=0.5)
+    bots = (~env.policy_seats()).sum(1)
+    assert set(bots.tolist()) == {0, 1} and 0.4 < bots.mean() < 0.6
+    # Python always has a decision to make, even in envs without bots.
+    _, _, actor = env.observe()
+    assert env.policy_seats()[np.arange(400), actor].all()
+    for bad in (-0.5, 3.5, 4):
+        with pytest.raises(ValueError):
+            _engine.VecEnv(2, bot_kind="random", num_bot_seats=bad)
+
+
+def test_vecenv_mixed_player_counts():
+    env = _engine.VecEnv(60, seed=4, player_counts=[2, 3, 4], bot_kind="random", num_bot_seats=1)
+    assert env.num_players == 4
+    counts = env.game_players()
+    assert set(counts.tolist()) == {2, 3, 4}
+    seats = env.policy_seats()
+    assert (seats.sum(1) == counts - 1).all()
+    assert not seats[counts == 2][:, 2:].any()
+    _play_random(env, 3000, np.random.default_rng(0))
+    counts = env.game_players()
+    all_obs = env.observe_all_seats()
+    assert all_obs.shape == (60, 4, OBS_SIZE)
+    assert not all_obs[counts == 2][:, 2:].any() and all_obs[counts == 2][:, :2].any()
+    with pytest.raises(ValueError):
+        _engine.VecEnv(2, player_counts=[])
+    with pytest.raises(ValueError):
+        _engine.VecEnv(2, player_counts=[5])
+
+
 def test_vecenv_rejects_illegal_actions():
     env = _engine.VecEnv(2, seed=0)
     _, mask, _ = env.observe()
