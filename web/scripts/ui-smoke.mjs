@@ -3,8 +3,8 @@
 //   uv run catan-server --port 8000 &
 //   CHROME_PATH="/path/to/chrome" npm run ui-smoke [-- --out shots/]
 //
-// Walks: home -> Play vs AI -> setup placements -> roll -> compose a trade offer,
-// then Pass & Play lobby -> curtain. Fails on any page error or missing step and
+// Walks: home -> Play vs AI setup (3 players) -> setup placements -> roll -> compose a
+// trade offer, then Pass & Play lobby -> curtain, and checks that background music plays. Fails on any page error or missing step and
 // optionally saves screenshots.
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
@@ -42,7 +42,15 @@ try {
   await shot(page, "home");
   await page.fill("input", "Smoke");
   await page.click("text=Play vs AI");
+  await page.waitForSelector(".quick-setup");
+  const rules = page.locator(".quick-setup select");
+  await rules.nth(0).selectOption("3"); // players
+  await rules.nth(1).selectOption("8"); // points to win
+  await shot(page, "quick-setup");
+  await page.click(".quick-setup >> text=Start game");
   await page.waitForSelector(".board", { timeout: 15000 });
+  const panels = await page.locator(".players .ppanel").count();
+  if (panels !== 3) throw new Error(`expected 3 players from the setup dialog, got ${panels}`);
   await playSetup(page);
   await shot(page, "setup");
   await page.click("button.roll", { force: true });
@@ -82,6 +90,32 @@ try {
   await p2.waitForSelector(".curtain", { timeout: 15000 });
   await shot(p2, "curtain");
   await p2.close();
+
+  // 3. Background music: with effects muted, any oscillator started comes from the music.
+  const p3 = await browser.newPage();
+  p3.on("pageerror", (e) => errors.push(String(e)));
+  await p3.addInitScript(() => {
+    localStorage.setItem("catan.muted", "1");
+    window.__osc = 0;
+    const start = OscillatorNode.prototype.start;
+    OscillatorNode.prototype.start = function (...a) {
+      window.__osc++;
+      return start.apply(this, a);
+    };
+  });
+  await p3.goto(BASE);
+  await p3.click("h1"); // user gesture unlocks the AudioContext
+  await p3.waitForTimeout(2500);
+  const playing = await p3.evaluate(() => window.__osc);
+  await p3.click(".music-toggle");
+  await p3.waitForTimeout(500);
+  const before = await p3.evaluate(() => window.__osc);
+  await p3.waitForTimeout(1500);
+  const after = await p3.evaluate(() => window.__osc);
+  await p3.click(".music-toggle"); // restore the default for later runs in this profile
+  if (!playing) throw new Error("lobby music did not start");
+  if (after !== before) throw new Error("music kept playing after being turned off");
+  await p3.close();
 } finally {
   await browser.close();
 }
