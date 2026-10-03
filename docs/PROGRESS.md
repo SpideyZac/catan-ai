@@ -26,6 +26,9 @@ Living status document. Update it at the end of every work session (newest first
   multiple of 8). Presets now use 5 heads (width 32) and compile defaults to on. Next:
   owner re-runs `catan-bench` (efficient attention should now be eligible) and restarts
   warm-up (head count changed, so the old warm-up checkpoint doesn't fit the new presets).
+* Re-bench with 5 heads: eager 9,545, compiled **18,063** samples/s. Efficient attention was
+  still refused because the relation-bias mask was a permuted view (last-dim stride 5);
+  it is now made contiguous, and `catan-bench` also tries `efficient + compile`.
 
 ## 2026-10-03 — First GPU run feedback
 

@@ -148,8 +148,10 @@ class _Block(nn.Module):
         b, length, d = x.shape
         h = self.heads
         q, k, v = self.qkv(self.ln1(x)).view(b, length, 3, h, d // h).permute(2, 0, 3, 1, 4)
-        # [B, H, L, L] view (stride 0 over batch) of the per-head relation bias.
-        bias = self.rel_bias(rel).permute(2, 0, 1).unsqueeze(0).to(q.dtype).expand(b, -1, -1, -1)
+        # [B, H, L, L] view (stride 0 over batch) of the per-head relation bias. It must be
+        # contiguous: fused GPU attention kernels require the mask's last dim to have stride 1.
+        bias = self.rel_bias(rel).permute(2, 0, 1).to(q.dtype).contiguous()
+        bias = bias.unsqueeze(0).expand(b, -1, -1, -1)
         attn = F.scaled_dot_product_attention(
             q, k, v, attn_mask=bias, dropout_p=self.dropout if self.training else 0.0
         )

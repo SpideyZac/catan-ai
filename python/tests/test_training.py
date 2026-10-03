@@ -228,3 +228,21 @@ def test_narrow_heads_warn_and_presets_use_fused_friendly_width():
     for name in ("warmup", "full"):
         m = PRESETS[name]["model"]
         assert (m["d_model"] // m["n_heads"]) % 8 == 0, name
+
+
+def test_attention_bias_is_kernel_friendly(monkeypatch):
+    import torch.nn.functional as F
+
+    seen = {}
+    real = F.scaled_dot_product_attention
+
+    def spy(q, k, v, attn_mask=None, **kw):
+        seen["stride"] = attn_mask.stride()
+        return real(q, k, v, attn_mask=attn_mask, **kw)
+
+    monkeypatch.setattr(F, "scaled_dot_product_attention", spy)
+    model = build_model(ModelConfig(d_model=32, n_layers=1, n_heads=2))
+    model(torch.from_numpy(CatanGame(seed=0).observe(0)).unsqueeze(0).repeat(3, 1))
+    # Last dim stride 1 (required by fused CUDA kernels), batch broadcast with stride 0.
+    assert seen["stride"][-1] == 1
+    assert seen["stride"][0] == 0

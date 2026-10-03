@@ -126,7 +126,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     print(f"env: {bench_env():,.0f} decisions/s (VecEnv 256, random legal actions)")
 
-    variants = [(a, False) for a in BACKENDS] + ([] if args.skip_compile else [("auto", True)])
+    compiled = [] if args.skip_compile else [("auto", True), ("efficient", True)]
+    variants = [(a, False) for a in BACKENDS] + compiled
     results = []
     for attention, compiled in variants:
         label = f"attention={attention}" + (" + compile" if compiled else "")
